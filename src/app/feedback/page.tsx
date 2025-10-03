@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import TopNav from "../../components/layout/TopNav";
 import FeedbackCard from "../../components/feedback/FeedbackCard";
+import CurrentLevelOverview from "../../components/feedback/CurrentLevelOverview";
 import { useAuth } from "../../hooks/useAuth";
 import { supabase } from "../../lib/supabase";
 
@@ -40,6 +41,7 @@ interface SessionData {
 export default function FeedbackPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
+  const [profile, setProfile] = useState<any>(null);
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -52,9 +54,23 @@ export default function FeedbackPage() {
   useEffect(() => {
     if (!user) return;
 
-    const fetchSessions = async () => {
+    const fetchData = async () => {
       try {
-        const { data, error } = await supabase
+        // Fetch profile
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("id, current_level, email, display_name")
+          .eq("id", user.id)
+          .single();
+
+        if (profileError) {
+          console.error("Error fetching profile:", profileError);
+        } else {
+          setProfile(profileData);
+        }
+
+        // Fetch sessions
+        const { data: sessionsData, error: sessionsError } = await supabase
           .from("sessions")
           .select("id, created_at, topic, final_score_json")
           .eq("user_id", user.id)
@@ -62,13 +78,13 @@ export default function FeedbackPage() {
           .not("final_score_json", "is", null)
           .order("created_at", { ascending: false });
 
-        if (error) {
-          console.error("Error fetching sessions:", error);
+        if (sessionsError) {
+          console.error("Error fetching sessions:", sessionsError);
           return;
         }
 
         // Transform data to match SessionData interface
-        const transformedSessions = (data || []).map((session: any) => ({
+        const transformedSessions = (sessionsData || []).map((session: any) => ({
           id: session.id,
           created_at: session.created_at,
           topic: session.topic,
@@ -82,13 +98,13 @@ export default function FeedbackPage() {
 
         setSessions(transformedSessions);
       } catch (err) {
-        console.error("Error fetching sessions:", err);
+        console.error("Error fetching data:", err);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchSessions();
+    fetchData();
   }, [user]);
 
   if (authLoading || loading) {
@@ -113,9 +129,13 @@ export default function FeedbackPage() {
           </button>
         </Link>
 
-        <h1 className="text-3xl font-bold text-white mb-8">
-          Your Feedback History
-        </h1>
+        {/* Page Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-white mb-2">Your Progress 📊</h1>
+          <p className="text-sm text-neutral-400">
+            Track your improvement and review past sessions
+          </p>
+        </div>
 
         {sessions.length === 0 ? (
           <div className="bg-zinc-800/50 border border-zinc-700 rounded-2xl p-8 text-center">
@@ -130,11 +150,25 @@ export default function FeedbackPage() {
             </button>
           </div>
         ) : (
-          <div className="space-y-4">
-            {sessions.map((session) => (
-              <FeedbackCard key={session.id} session={session} />
-            ))}
-          </div>
+          <>
+            {/* Current Level Overview */}
+            {profile && <CurrentLevelOverview user={profile} sessions={sessions} />}
+
+            {/* Session History Header */}
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold text-white">Session History</h2>
+              <p className="text-xs text-neutral-400">
+                Click any session to see detailed feedback
+              </p>
+            </div>
+
+            {/* Session Cards */}
+            <div className="space-y-4">
+              {sessions.map((session) => (
+                <FeedbackCard key={session.id} session={session} />
+              ))}
+            </div>
+          </>
         )}
       </main>
     </div>

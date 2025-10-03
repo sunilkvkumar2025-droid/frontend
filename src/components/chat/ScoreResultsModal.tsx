@@ -4,70 +4,8 @@
 "use client";
 
 import { useState } from "react";
-
-function getScoreMessage(score: number): { headline: string; message: string } {
-  if (score <= 25) {
-    return {
-      headline: "You're Building Your Foundation! 🌱",
-      message: "Every expert was once a beginner. You're learning the basics—keep practicing and you'll see progress soon!"
-    };
-  }
-  if (score <= 45) {
-    return {
-      headline: "You're Making Progress! 💪",
-      message: "You're developing your English skills! Keep going—every conversation makes you stronger."
-    };
-  }
-  if (score <= 60) {
-    return {
-      headline: "You're Getting Comfortable! ⭐",
-      message: "Nice work! You can express your ideas well. Now let's add more variety and confidence."
-    };
-  }
-  if (score <= 75) {
-    return {
-      headline: "You're Really Strong! 🎯",
-      message: "Great job! Your English is clear and effective. With more practice, you'll sound even more natural."
-    };
-  }
-  if (score <= 85) {
-    return {
-      headline: "You're Excellent! 🌟",
-      message: "Impressive! You communicate really well in English. Just a few small improvements and you'll be perfect."
-    };
-  }
-  return {
-    headline: "You're Nearly Perfect! 🏆",
-    message: "Wow! Your English is outstanding. You're ready for any conversation. Keep shining!"
-  };
-}
-
-const CEFR_LEVELS = {
-  A1: {
-    name: "Beginner",
-    description: "Can understand and use familiar everyday expressions and basic phrases. Can introduce themselves and ask simple questions."
-  },
-  A2: {
-    name: "Elementary",
-    description: "Can communicate in simple routine tasks. Can describe their background, immediate environment, and matters of immediate need."
-  },
-  B1: {
-    name: "Intermediate",
-    description: "Can deal with most situations while traveling. Can describe experiences, events, dreams, and ambitions. Can give reasons and explanations."
-  },
-  B2: {
-    name: "Upper Intermediate",
-    description: "Can interact with native speakers fluently and spontaneously. Can produce clear, detailed text on a wide range of subjects."
-  },
-  C1: {
-    name: "Advanced",
-    description: "Can express ideas fluently and spontaneously. Can use language flexibly for social, academic, and professional purposes."
-  },
-  C2: {
-    name: "Proficient",
-    description: "Can understand virtually everything with ease. Can express themselves spontaneously, very fluently, and precisely."
-  }
-};
+import { getScoreMessage } from "../../lib/scoring";
+import CEFRBadge from "../shared/CEFRBadge";
 
 type RubricScores = {
   pronunciation: number | null;
@@ -105,7 +43,6 @@ export default function ScoreResultsModal({
 }: ScoreResultsModalProps) {
   const [showMistakes, setShowMistakes] = useState(false);
   const [showSummaries, setShowSummaries] = useState(false);
-  const [showCEFRInfo, setShowCEFRInfo] = useState(false);
 
   if (!isOpen || !scoreData) return null;
 
@@ -144,46 +81,8 @@ export default function ScoreResultsModal({
           </div>
 
           <div className="flex justify-center">
-            <button
-              onClick={() => setShowCEFRInfo(!showCEFRInfo)}
-              className="px-3 py-1 bg-blue-600/20 border border-blue-400/30 rounded-full text-sm font-semibold hover:bg-blue-600/30 transition-colors cursor-pointer"
-            >
-              {scoreData.estimated_cefr} ℹ️
-            </button>
+            <CEFRBadge level={scoreData.estimated_cefr} />
           </div>
-
-          {/* CEFR Info Popup */}
-          {showCEFRInfo && (
-            <div className="mt-4 bg-neutral-800/50 border border-blue-400/30 rounded-xl p-4">
-              <h3 className="text-lg font-semibold mb-1 text-blue-300">CEFR Language Levels</h3>
-              <div className="mb-3 text-xs text-neutral-400 italic">
-                CEFR (Common European Framework of Reference) is an international standard for describing language ability.
-              </div>
-              <div className="space-y-3 text-sm">
-                {Object.entries(CEFR_LEVELS).map(([level, info]) => {
-                  const isCurrentLevel = level === scoreData.estimated_cefr;
-                  return (
-                    <div
-                      key={level}
-                      className={`p-3 rounded-lg ${
-                        isCurrentLevel
-                          ? "bg-blue-600/20 border border-blue-400/40"
-                          : "bg-neutral-800/30"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-bold text-blue-300">{level}</span>
-                        <span className="text-neutral-400">-</span>
-                        <span className="font-semibold">{info.name}</span>
-                        {isCurrentLevel && <span className="ml-auto text-xs">← Your Level</span>}
-                      </div>
-                      <div className="text-neutral-300">{info.description}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Rubric Scores */}
