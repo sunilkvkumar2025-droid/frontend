@@ -13,11 +13,16 @@ interface Rubric {
   grammar: number;
 }
 
+interface PronunciationMistake {
+  example: string;
+  suggestion: string;
+}
+
 interface Mistakes {
   grammar?: Array<{ original: string; corrected: string; brief_rule: string }>;
   vocabulary?: Array<{ original: string; suggestion: string; reason: string }>;
   content?: Array<{ issue: string; suggestion: string }>;
-  pronunciation?: Array<any>;
+  pronunciation?: PronunciationMistake[];
 }
 
 interface SessionData {

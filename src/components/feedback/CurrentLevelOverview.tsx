@@ -13,11 +13,16 @@ interface Rubric {
   grammar: number;
 }
 
+interface PronunciationMistake {
+  example: string;
+  suggestion: string;
+}
+
 interface Mistake {
   grammar?: Array<{ original: string; corrected: string; brief_rule: string }>;
   vocabulary?: Array<{ original: string; suggestion: string; reason: string }>;
   content?: Array<{ issue: string; suggestion: string }>;
-  pronunciation?: Array<any>;
+  pronunciation?: PronunciationMistake[];
 }
 
 interface Session {
@@ -32,8 +37,15 @@ interface Session {
   actionable_feedback?: string[];
 }
 
+interface User {
+  id: string;
+  current_level: number;
+  email: string;
+  display_name: string;
+}
+
 interface Props {
-  user: any;
+  user: User;
   sessions: Session[];
 }
 
@@ -53,14 +65,14 @@ interface OverviewData {
     grammar: Array<{ original: string; corrected: string; brief_rule: string }>;
     vocabulary: Array<{ original: string; suggestion: string; reason: string }>;
     content: Array<{ issue: string; suggestion: string }>;
-    pronunciation: Array<any>;
+    pronunciation: PronunciationMistake[];
   };
   trend: { direction: string; diff: number } | null;
   hasEnoughForAverage: boolean;
   hasEnoughForPatterns: boolean;
 }
 
-function computeOverviewData(user: any, sessions: Session[]): OverviewData {
+function computeOverviewData(user: User, sessions: Session[]): OverviewData {
   const currentLevel = user?.current_level || 0;
   const sessionCount = sessions.length;
 
@@ -116,7 +128,7 @@ function computeOverviewData(user: any, sessions: Session[]): OverviewData {
     grammar: [] as Array<{ original: string; corrected: string; brief_rule: string }>,
     vocabulary: [] as Array<{ original: string; suggestion: string; reason: string }>,
     content: [] as Array<{ issue: string; suggestion: string }>,
-    pronunciation: [] as Array<any>,
+    pronunciation: [] as PronunciationMistake[],
   };
 
   last5.forEach((s) => {

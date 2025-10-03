@@ -19,11 +19,16 @@ interface Rubric {
   grammar: number;
 }
 
+interface PronunciationMistake {
+  example: string;
+  suggestion: string;
+}
+
 interface Mistakes {
   grammar?: Array<{ original: string; corrected: string; brief_rule: string }>;
   vocabulary?: Array<{ original: string; suggestion: string; reason: string }>;
   content?: Array<{ issue: string; suggestion: string }>;
-  pronunciation?: Array<any>;
+  pronunciation?: PronunciationMistake[];
 }
 
 interface SessionData {
@@ -38,10 +43,31 @@ interface SessionData {
   actionable_feedback?: string[];
 }
 
+interface Profile {
+  id: string;
+  current_level: number;
+  email: string;
+  display_name: string;
+}
+
+interface RawSessionData {
+  id: string;
+  created_at: string;
+  topic: string | null;
+  final_score_json: {
+    overall_score_0_100: number;
+    estimated_cefr: string;
+    rubric: Rubric;
+    section_summaries: { [key: string]: string };
+    mistakes: Mistakes;
+    actionable_feedback?: string[];
+  };
+}
+
 export default function FeedbackPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -84,7 +110,7 @@ export default function FeedbackPage() {
         }
 
         // Transform data to match SessionData interface
-        const transformedSessions = (sessionsData || []).map((session: any) => ({
+        const transformedSessions = (sessionsData || []).map((session: RawSessionData) => ({
           id: session.id,
           created_at: session.created_at,
           topic: session.topic,
