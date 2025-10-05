@@ -59,7 +59,7 @@ export default function ChatWindow() {
     const [scoreData, setScoreData] = useState<ScoreData | null>(null);
     const { enqueue, clear } = useAudioQueue();
     const { send, abort } = useSSEChat();
-    const { endSession, isEnding, error: endSessionError } = useEndSession();    
+    const { endSession, isEnding } = useEndSession();    
 
     const handleBargeIn = () => {
         abort();        // stop Coco's current turn
@@ -140,12 +140,6 @@ export default function ChatWindow() {
     );
     setIsStreaming(false);
     }
-    };
-
-
-    const handleStop = () => {
-    abort();
-    setIsStreaming(false);
     };
 
     const handleEndSession = async () => {

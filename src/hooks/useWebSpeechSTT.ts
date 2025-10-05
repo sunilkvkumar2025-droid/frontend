@@ -25,7 +25,11 @@ export function useWebSpeechSTT(lang = "en-IN") {
       let interim = "", final = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
-        (r.isFinal ? (final += r[0].transcript) : (interim += r[0].transcript));
+        if (r.isFinal) {
+          final += r[0].transcript;
+        } else {
+          interim += r[0].transcript;
+        }
       }
       if (interim) cbsRef.current.onPartial?.(interim);
       if (final)  cbsRef.current.onFinal?.(final.trim());

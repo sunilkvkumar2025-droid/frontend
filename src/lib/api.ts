@@ -13,10 +13,12 @@ export async function ssePost({
     url,
     token,
     body,
+    signal,
     }: {
     url: string;
     token: string;
     body: unknown;
+    signal?: AbortSignal;
     }): Promise<Response> {
     return fetch(url, {
     method: "POST",
@@ -26,6 +28,7 @@ export async function ssePost({
     "Accept": "text/event-stream",
     },
     body: JSON.stringify(body ?? {}),
+    signal,
     });
     }
 
