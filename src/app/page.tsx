@@ -70,7 +70,7 @@ export default function Home() {
 
       console.log("Sending to start-session:", payload);
 
-      const response = await callFunction("start-session", payload);
+      const response = await callFunction<{ sessionId: string }>("start-session", payload);
 
       if (response?.sessionId) {
         router.push(`/chat?s=${response.sessionId}`);
