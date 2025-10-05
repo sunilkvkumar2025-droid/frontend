@@ -6,7 +6,7 @@ if (!base) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
 
 async function getFreshToken(): Promise<string> {
   // 1) current token
-  let { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Not signed in");
   return session.access_token;
 }
@@ -22,7 +22,7 @@ async function postOnce(name: string, token: string, payload?: unknown, signal?:
   });
 }
 
-export async function callFunction<T = any>(
+export async function callFunction<T = unknown>(
   name: string,
   payload?: unknown,
   signal?: AbortSignal
@@ -43,9 +43,11 @@ export async function callFunction<T = any>(
   // Handle non-OK
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    let parsed: any = null;
-    try { parsed = text ? JSON.parse(text) : null; } catch {}
-    const msg = parsed?.error || parsed?.message || `HTTP ${res.status}`;
+    let parsed: Record<string, unknown> | null = null;
+    try { parsed = text ? JSON.parse(text) as Record<string, unknown> : null; } catch {
+      // Ignore parse errors
+    }
+    const msg = (parsed?.error as string) || (parsed?.message as string) || `HTTP ${res.status}`;
     throw new Error(msg);
   }
 

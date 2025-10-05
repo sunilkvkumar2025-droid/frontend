@@ -10,7 +10,8 @@ export function useMicCapture() {
   const chunksRef = useRef<BlobPart[]>([]);
 
   useEffect(() => {
-    setSupported(!!(navigator.mediaDevices && (window as any).MediaRecorder));
+    const windowWithMediaRecorder = window as Window & { MediaRecorder?: typeof MediaRecorder };
+    setSupported(!!(navigator.mediaDevices && windowWithMediaRecorder.MediaRecorder));
   }, []);
 
   async function start() {
@@ -18,7 +19,12 @@ export function useMicCapture() {
     setError(null);
     try {
       mediaRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = (window as any).MediaRecorder?.isTypeSupported?.("audio/webm;codecs=opus")
+      const windowWithMediaRecorder = window as Window & {
+        MediaRecorder?: typeof MediaRecorder & {
+          isTypeSupported?: (type: string) => boolean
+        }
+      };
+      const mime = windowWithMediaRecorder.MediaRecorder?.isTypeSupported?.("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : "audio/webm";
       recRef.current = new MediaRecorder(mediaRef.current!, { mimeType: mime });
@@ -30,8 +36,9 @@ export function useMicCapture() {
       };
       recRef.current.start(150);
       setIsRecording(true);
-    } catch (e: any) {
-      setError(e?.message ?? "Microphone error");
+    } catch (e) {
+      const error = e as Error;
+      setError(error?.message ?? "Microphone error");
     }
   }
 

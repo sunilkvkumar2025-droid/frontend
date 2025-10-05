@@ -295,7 +295,7 @@ export default function CurrentLevelOverview({ user, sessions }: Props) {
                 <ul className="space-y-1 text-sm text-neutral-300">
                   {overviewData.mistakeCounts.grammar.slice(0, 3).map((mistake, i) => (
                     <li key={i}>
-                      • "{mistake.original}" → "{mistake.corrected}"
+                      • &quot;{mistake.original}&quot; → &quot;{mistake.corrected}&quot;
                       <span className="text-xs text-neutral-500 ml-2">
                         ({mistake.brief_rule})
                       </span>
@@ -317,7 +317,7 @@ export default function CurrentLevelOverview({ user, sessions }: Props) {
                 <ul className="space-y-1 text-sm text-neutral-300">
                   {overviewData.mistakeCounts.vocabulary.slice(0, 3).map((mistake, i) => (
                     <li key={i}>
-                      • "{mistake.original}" → Try: "{mistake.suggestion}"
+                      • &quot;{mistake.original}&quot; → Try: &quot;{mistake.suggestion}&quot;
                       <span className="text-xs text-neutral-500 ml-2">({mistake.reason})</span>
                     </li>
                   ))}

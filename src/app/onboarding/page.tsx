@@ -67,7 +67,7 @@ export default function OnboardingPage() {
       <div className="max-w-md w-full mx-4">
         <div className="bg-zinc-900 rounded-2xl border border-zinc-800 p-8">
           <h1 className="text-3xl font-bold text-white mb-2 text-center">
-            Let's get to know you! 🌟
+            Let&apos;s get to know you! 🌟
           </h1>
           <p className="text-neutral-400 text-center mb-8">
             Tell us a bit about yourself to get started
@@ -77,7 +77,7 @@ export default function OnboardingPage() {
             {/* Name Input */}
             <div>
               <label className="block text-sm font-medium text-neutral-300 mb-2">
-                What's your name?
+                What&apos;s your name?
               </label>
               <input
                 type="text"
@@ -93,7 +93,7 @@ export default function OnboardingPage() {
             {/* Level Selection */}
             <div>
               <label className="block text-sm font-medium text-neutral-300 mb-3">
-                What's your English level?
+                What&apos;s your English level?
               </label>
               <div className="space-y-2">
                 {LEVEL_OPTIONS.map((option) => (

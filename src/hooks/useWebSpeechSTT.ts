@@ -10,7 +10,11 @@ export function useWebSpeechSTT(lang = "en-IN") {
   const cbsRef = useRef<Cbs>({});
 
   useEffect(() => {
-    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const windowWithSpeechRecognition = window as Window & {
+      SpeechRecognition?: typeof SpeechRecognition;
+      webkitSpeechRecognition?: typeof SpeechRecognition;
+    };
+    const SR = windowWithSpeechRecognition.SpeechRecognition || windowWithSpeechRecognition.webkitSpeechRecognition;
     if (!SR) return;
     setSupported(true);
     const rec: SpeechRecognition = new SR();

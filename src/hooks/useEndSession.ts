@@ -12,6 +12,13 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
 );
 
+type PronunciationMistake = {
+  example: string;
+  suggestion: string;
+};
+
+type PronunciationSignals = Record<string, unknown> | null;
+
 type ScoreData = {
   rubric: {
     pronunciation: number | null;
@@ -26,7 +33,7 @@ type ScoreData = {
     grammar?: Array<{ original: string; corrected: string; brief_rule: string }>;
     vocabulary?: Array<{ original: string; suggestion: string; reason: string }>;
     content?: Array<{ issue: string; suggestion: string }>;
-    pronunciation?: Array<any>;
+    pronunciation?: PronunciationMistake[];
   };
   actionable_feedback?: string[];
 };
@@ -37,7 +44,7 @@ export function useEndSession() {
 
   const endSession = async (
     sessionId: string,
-    pronunciationSignals?: any
+    pronunciationSignals?: PronunciationSignals
   ): Promise<ScoreData | null> => {
     setIsEnding(true);
     setError(null);

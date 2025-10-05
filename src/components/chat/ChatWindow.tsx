@@ -18,6 +18,26 @@ export type Message = {
     text: string;
     wantAudio?: boolean; // stored per turn
 };
+
+type ScoreData = {
+    rubric: {
+        pronunciation: number | null;
+        content: number;
+        vocabulary: number;
+        grammar: number;
+    };
+    overall_score_0_100: number;
+    estimated_cefr: string;
+    section_summaries?: { [key: string]: string };
+    mistakes?: {
+        grammar?: Array<{ original: string; corrected: string; brief_rule: string }>;
+        vocabulary?: Array<{ original: string; suggestion: string; reason: string }>;
+        content?: Array<{ issue: string; suggestion: string }>;
+        pronunciation?: Array<{ example: string; suggestion: string }>;
+    };
+    actionable_feedback?: string[];
+};
+
 import { createClient } from "@supabase/supabase-js";
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL || "",
@@ -36,7 +56,7 @@ export default function ChatWindow() {
     const [isStreaming, setIsStreaming] = useState(false);
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [showScoreModal, setShowScoreModal] = useState(false);
-    const [scoreData, setScoreData] = useState<any>(null);
+    const [scoreData, setScoreData] = useState<ScoreData | null>(null);
     const { enqueue, clear } = useAudioQueue();
     const { send, abort } = useSSEChat();
     const { endSession, isEnding, error: endSessionError } = useEndSession();    
@@ -156,7 +176,7 @@ export default function ChatWindow() {
     <div className="w-full flex flex-col gap-3">
     {!sessionId ? (
     <div className="text-xs text-amber-300/90 border border-amber-500/30 bg-amber-500/10 rounded-xl px-3 py-2">
-    Tip: Provide a session via <code>?s=SESSION_ID</code> in the URL or wire an auto "start-session" here.
+    Tip: Provide a session via <code>?s=SESSION_ID</code> in the URL or wire an auto &quot;start-session&quot; here.
     </div>
     ) : null}
     <MessageList messages={messages} isStreaming={isStreaming} />
