@@ -73,7 +73,12 @@ export function useSSEChat() {
     let gotDone = false;
     for await (const { ev, data } of parseSSE(body)) {
     if (ctrl.signal.aborted) break;
-    const parsed = safeJson<Record<string, unknown>>(data) ?? { text: data, url: data };
+    const parsed = safeJson<{
+      text?: string;
+      url?: string;
+      seq?: number;
+      messageId?: string
+    }>(data) ?? { text: data, url: data };
     if (ev === "token") {
     const t = typeof parsed.text === "string" ? parsed.text : String(parsed);
     onEvent({ type: "token", text: t });
