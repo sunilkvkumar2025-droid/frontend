@@ -37,7 +37,9 @@ export function useAudioQueue() {
 
     // 2) Single AudioContext & nodes
     if (!sharedCtx) {
-      const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext;
+      const windowWithAudioContext = window as Window & { webkitAudioContext?: typeof AudioContext };
+      const AC = window.AudioContext || windowWithAudioContext.webkitAudioContext;
+      if (!AC) throw new Error("AudioContext not supported");
       sharedCtx = new AC();
     }
     if (!sharedSrc) {

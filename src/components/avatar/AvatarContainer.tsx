@@ -1,7 +1,7 @@
 // src/components/avatar/AvatarContainer.tsx
 "use client";
 import React from "react";
-import { AvatarFace } from "./AvatarFace";
+import { AvatarFace, AvatarState } from "./AvatarFace";
 
 type Phase = "idle" | "userRecording" | "llm" | "tts";
 
@@ -29,7 +29,7 @@ export function AvatarContainer({
 
   return (
     <div className="flex items-center justify-center">
-      <AvatarFace state={state as any} level={level} />
+      <AvatarFace state={state as AvatarState} level={level} />
     </div>
   );
 }
