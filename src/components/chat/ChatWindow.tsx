@@ -7,9 +7,11 @@ import { useEffect, useMemo, useState } from "react";
 import MessageList from "./MessageList";
 import ChatInput from "./ChatInput";
 import ScoreResultsModal from "./ScoreResultsModal";
-import { useAudioQueue } from "../../hooks/useAudioQueue";
+import { useAudioQueue, resumeAudio } from "../../hooks/useAudioQueue";
 import { useSSEChat } from "../../hooks/useSSEChat";
 import { useEndSession } from "../../hooks/useEndSession";
+import { AvatarContainer } from "../avatar/AvatarContainer"; 
+import { AvatarPhoto } from "../avatar/AvatarPhoto";
 
 export type Role = "user" | "assistant" | "system";
 export type Message = {
@@ -44,6 +46,9 @@ const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
 );
 
+type Phase = "idle" | "userRecording" | "llm" | "tts"; 
+
+
 export default function ChatWindow() {
     const [messages, setMessages] = useState<Message[]>([
     {
@@ -57,14 +62,17 @@ export default function ChatWindow() {
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [showScoreModal, setShowScoreModal] = useState(false);
     const [scoreData, setScoreData] = useState<ScoreData | null>(null);
-    const { enqueue, clear } = useAudioQueue();
+    const { enqueue, clear, level: ttsLevel, audioRef } = useAudioQueue();
     const { send, abort } = useSSEChat();
-    const { endSession, isEnding } = useEndSession();    
+    const { endSession, isEnding } = useEndSession();  
+    const [phase, setPhase] = useState<Phase>("idle");
+  
 
     const handleBargeIn = () => {
         abort();        // stop Coco's current turn
         clear();        // stop any playing audio immediately
         setIsStreaming(false);
+        setPhase("idle"); //avatar back to idle
       };
       
     
@@ -91,6 +99,9 @@ export default function ChatWindow() {
         return;
         }
         
+        // mobile autoplay unlock
+    resumeAudio(); // ensure AudioContext is resumed from this user gesture
+
         // cancel any queued/playing audio on user turn change
     clear();
 
@@ -112,6 +123,8 @@ export default function ChatWindow() {
 
 
     setIsStreaming(true);
+    setPhase("llm"); //  avatar thinking while we wait for SSE/audio
+
         try {
         await send(
         { sessionId, text: userMsg.text, wantAudio, getAccessToken },
@@ -123,9 +136,10 @@ export default function ChatWindow() {
     )
     );
     } else if (evt.type === "audio") {
-    if (userMsg.wantAudio) enqueue(evt.url);
-    } else if (evt.type === "done") {
+    if (userMsg.wantAudio) {enqueue(evt.url); setPhase("tts"); // avatar speaking during TTS
+    }} else if (evt.type === "done") {
     setIsStreaming(false);
+    if (!userMsg.wantAudio) setPhase("idle");
     }
     }
     );
@@ -139,6 +153,7 @@ export default function ChatWindow() {
     )
     );
     setIsStreaming(false);
+    setPhase("idle");
     }
     };
 
@@ -163,40 +178,75 @@ export default function ChatWindow() {
         setSessionId(null);
         setShowScoreModal(false);
         setScoreData(null);
+        setPhase("idle");
     };
 
+      // when the single <audio> starts/ends, keep avatar in sync
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+
+    const onPlay = () => setPhase("tts");
+    const onEnded = () => setPhase("idle");
+
+    el.addEventListener("play", onPlay);
+    el.addEventListener("ended", onEnded);
+    el.addEventListener("pause", onEnded); // covers interrupted playback
+
+    return () => {
+      el.removeEventListener("play", onPlay);
+      el.removeEventListener("ended", onEnded);
+      el.removeEventListener("pause", onEnded);
+    };
+  }, [audioRef]);
 
     return (
     <div className="w-full flex flex-col gap-3">
-    {!sessionId ? (
-    <div className="text-xs text-amber-300/90 border border-amber-500/30 bg-amber-500/10 rounded-xl px-3 py-2">
-    Tip: Provide a session via <code>?s=SESSION_ID</code> in the URL or wire an auto &quot;start-session&quot; here.
-    </div>
-    ) : null}
-    <MessageList messages={messages} isStreaming={isStreaming} />
-    {sessionId && messages.length > 2 && (
-        <div className="flex justify-end">
-            <button
-                onClick={handleEndSession}
-                disabled={isStreaming || isEnding}
-                className="flex items-center gap-2 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 disabled:bg-neutral-900 disabled:opacity-50 border border-neutral-600 rounded-xl text-sm font-medium transition-colors"
-            >
-                🏁 End Session
-            </button>
+      {/* Avatar sits above messages; small padding keeps layout neat */}
+<div className="w-full flex items-center justify-center pt-1">
+  <AvatarPhoto
+    phase={phase}
+    level={ttsLevel}   // later you can feed mic level when phase === 'listening'
+    width={280}
+    height={280}
+    baseSrc="/avatars/coco/base.png"
+    mouthOpenSrc="/avatars/coco/mouth-open.png"
+    // mouthMidSrc="/avatars/coco/mouth-mid.png" // optional
+  />
+</div>
+      {!sessionId ? (
+        <div className="text-xs text-amber-300/90 border border-amber-500/30 bg-amber-500/10 rounded-xl px-3 py-2">
+          Tip: Provide a session via <code>?s=SESSION_ID</code> in the URL or wire an auto &quot;start-session&quot; here.
         </div>
-    )}
-    <ChatInput
+      ) : null}
+
+      <MessageList messages={messages} isStreaming={isStreaming} />
+
+      {sessionId && messages.length > 2 && (
+        <div className="flex justify-end">
+          <button
+            onClick={handleEndSession}
+            disabled={isStreaming || isEnding}
+            className="flex items-center gap-2 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 disabled:bg-neutral-900 disabled:opacity-50 border border-neutral-600 rounded-xl text-sm font-medium transition-colors"
+          >
+            🏁 End Session
+          </button>
+        </div>
+      )}
+
+      <ChatInput
         onSend={handleSend}
-        onStop={() => { abort(); setIsStreaming(false); }}
-        onBargeIn={handleBargeIn}
+        onStop={() => { abort(); setIsStreaming(false); setPhase("idle"); }}
+        onBargeIn={() => { handleBargeIn(); }}
         isStreaming={isStreaming}
-        />
-    <ScoreResultsModal
+      />
+
+      <ScoreResultsModal
         isOpen={showScoreModal}
         onClose={() => setShowScoreModal(false)}
         scoreData={scoreData}
         onStartNew={handleStartNewSession}
-        />
+      />
     </div>
-    );
-    }
+  );
+}

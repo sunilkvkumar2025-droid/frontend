@@ -5,6 +5,7 @@ export function useMicCapture() {
   const [supported, setSupported] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null); 
   const mediaRef = useRef<MediaStream | null>(null);
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -19,6 +20,8 @@ export function useMicCapture() {
     setError(null);
     try {
       mediaRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setStream(mediaRef.current); 
+
       const windowWithMediaRecorder = window as Window & {
         MediaRecorder?: typeof MediaRecorder & {
           isTypeSupported?: (type: string) => boolean
@@ -33,6 +36,7 @@ export function useMicCapture() {
       recRef.current.onstop = () => {
         mediaRef.current?.getTracks().forEach((t) => t.stop());
         mediaRef.current = null;
+        setStream(null); 
       };
       recRef.current.start(150);
       setIsRecording(true);
@@ -49,6 +53,7 @@ export function useMicCapture() {
         const blob = new Blob(chunksRef.current, { type: recRef.current!.mimeType });
         mediaRef.current?.getTracks().forEach((t) => t.stop());
         mediaRef.current = null;
+        setStream(null);
         setIsRecording(false);
         resolve(blob);
       };
@@ -57,5 +62,5 @@ export function useMicCapture() {
   }
 
   useEffect(() => () => { mediaRef.current?.getTracks().forEach((t) => t.stop()); }, []);
-  return { supported, isRecording, start, stop, error } as const;
+  return { supported, isRecording, start, stop, error, stream } as const;
 }
