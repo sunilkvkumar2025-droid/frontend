@@ -67,7 +67,7 @@ export default function ChatInput({
           </div>
 
           {/* Button column isolated with its own stacking context */}
-          <div className="relative z-50 isolate flex flex-col gap-2 min-w-[200px] items-stretch">
+          <div className="relative z-[101] isolate flex flex-col gap-2 min-w-[200px] items-stretch">
             <div className="flex gap-2">
               <div className="pointer-events-auto [touch-action:manipulation]">
                 <MicButton
