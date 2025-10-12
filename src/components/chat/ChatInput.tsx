@@ -64,7 +64,7 @@ export default function ChatInput({
               />
               Speak
             </label>
-          </div>
+       
 
           {/* Button column isolated with its own stacking context */}
           <div className="relative z-[101] isolate flex flex-col gap-2 min-w-[200px] items-stretch">
@@ -118,6 +118,7 @@ export default function ChatInput({
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }
