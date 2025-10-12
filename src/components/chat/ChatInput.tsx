@@ -76,6 +76,7 @@ export default function ChatInput({
             {isStreaming ? (
               <button
                 onClick={onStop}
+                onPointerDown={onStop}
                 className="px-3 py-2 rounded-lg bg-red-600/80 hover:bg-red-600 text-sm"
               >
                 Stop
@@ -83,6 +84,7 @@ export default function ChatInput({
             ) : (
               <button
                 onClick={() => submit()}
+                onPointerDown={() => submit()}
                 className="px-3 py-2 rounded-lg bg-blue-600/80 hover:bg-blue-600 text-sm"
               >
                 Send
