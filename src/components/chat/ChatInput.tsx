@@ -14,7 +14,7 @@ export default function ChatInput({
   onSend,
   onStop,
   isStreaming,
-  onBargeIn, 
+  onBargeIn,
 }: {
   onSend: (text: string, wantAudio: boolean) => void;
   onStop: () => void;
@@ -34,63 +34,73 @@ export default function ChatInput({
   const getAccessToken = async () =>
     (await supabase.auth.getSession()).data.session?.access_token ?? null;
 
-  return (
-    <div className="sticky bottom-0 bg-transparent">
-      <div className="mt-2 flex items-end gap-2">
-        <div className="flex-1">
-          <label className="text-xs opacity-70 mb-1 block">Message</label>
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit();
-              }
+return (
+  <div className="sticky bottom-0 bg-transparent">
+    <div className="mt-2">
+      {/* Row 1: label (kept separate so it doesn't shift vertical alignment) */}
+      <label className="text-xs opacity-70 mb-1 block">Message</label>
+
+      {/* Row 2: textarea + actions (aligned vertically to center) */}
+      <div className="flex items-center gap-2">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          rows={2}
+          placeholder="Hold 🎤 to speak, or type here…"
+          className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+        />
+
+        {/* Actions column (Mic + Send/Stop), centered to textarea */}
+        <div className="flex items-center gap-2 min-w-[200px]">
+          <MicButton
+            getAccessToken={getAccessToken}
+            sttUrl={functionUrl("stt")}
+            onStartRecording={() => onBargeIn?.()}
+            onPartial={(t) => setText(t)}          // live partials
+            onTranscript={(finalText) => {         // auto-send on final
+              onBargeIn?.();
+              submit(finalText);
             }}
-            rows={2}
-            placeholder="Hold 🎤 to speak, or type here…"
-            className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
           />
-          <label className="flex items-center gap-2 text-xs mt-1">
-            <input
-              type="checkbox"
-              checked={wantAudio}
-              onChange={(e) => setWantAudio(e.target.checked)}
-            />
-            Speak
-          </label>
-        </div>
-        <div className="flex flex-col gap-2 min-w-[200px] items-stretch">
-          <div className="flex gap-2">
-            <MicButton
-              getAccessToken={getAccessToken}
-              sttUrl={functionUrl("stt")}
-              onStartRecording={() => onBargeIn?.()}
-              onPartial={(t) => setText(t)}          // live partials
-              onTranscript={(finalText) => {         // auto-send on final
-                onBargeIn?.();
-                submit(finalText);
-              }}
-            />
-            {isStreaming ? (
-              <button
-                onClick={onStop}
-                className="px-3 py-2 rounded-lg bg-red-600/80 hover:bg-red-600 text-sm"
-              >
-                Stop
-              </button>
-            ) : (
-              <button
-                onClick={() => submit()}
-                className="px-3 py-2 rounded-lg bg-blue-600/80 hover:bg-blue-600 text-sm"
-              >
-                Send
-              </button>
-            )}
-          </div>
+
+          {isStreaming ? (
+            <button
+              onPointerDown={onStop}
+              onClick={onStop}
+              type="button"
+              className="px-3 py-2 rounded-lg bg-red-600/80 hover:bg-red-600 text-sm text-white [touch-action:manipulation] active:scale-[0.98]"
+            >
+              Stop
+            </button>
+          ) : (
+            <button
+              onPointerDown={() => submit()}
+              onClick={() => submit()}
+              type="button"
+              className="px-3 py-2 rounded-lg bg-blue-600/80 hover:bg-blue-600 text-sm text-white [touch-action:manipulation] active:scale-[0.98]"
+            >
+              Send
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Row 3: Speak toggle (kept separate) */}
+      <label className="flex items-center gap-2 text-xs mt-1">
+        <input
+          type="checkbox"
+          checked={wantAudio}
+          onChange={(e) => setWantAudio(e.target.checked)}
+        />
+        Speak
+      </label>
     </div>
-  );
+  </div>
+);
 }
