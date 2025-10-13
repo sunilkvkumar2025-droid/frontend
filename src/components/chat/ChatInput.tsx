@@ -10,19 +10,17 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
 );
 
-type ChatInputProps = {
-  onSend: (text: string, wantAudio: boolean) => void;
-  onStop: () => void;
-  isStreaming: boolean;
-  onBargeIn?: () => void;
-};
-
 export default function ChatInput({
   onSend,
   onStop,
   isStreaming,
-  onBargeIn,
-}: ChatInputProps) {
+  onBargeIn, 
+}: {
+  onSend: (text: string, wantAudio: boolean) => void;
+  onStop: () => void;
+  isStreaming: boolean;
+  onBargeIn?: () => void;
+}) {
   const [text, setText] = useState("");
   const [wantAudio, setWantAudio] = useState(true);
 
@@ -37,79 +35,59 @@ export default function ChatInput({
     (await supabase.auth.getSession()).data.session?.access_token ?? null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[100] bg-zinc-950/80 backdrop-blur pointer-events-auto">
-      <div className="px-3 pt-2 pb-[calc(env(safe-area-inset-bottom,0px)+12px)]">
-        <div className="mt-1 flex items-center gap-2 [touch-action:manipulation]">
-          {/* LEFT COLUMN */}
-          <div className="flex-1">
-            <label className="text-xs opacity-70 mb-1 block">Message</label>
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  submit();
-                }
-              }}
-              rows={2}
-              placeholder="Hold 🎤 to speak, or type here…"
-              className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+    <div className="sticky bottom-0 bg-transparent">
+      <div className="mt-2 flex items-end gap-2">
+        <div className="flex-1">
+          <label className="text-xs opacity-70 mb-1 block">Message</label>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            rows={2}
+            placeholder="Hold 🎤 to speak, or type here…"
+            className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+          />
+          <label className="flex items-center gap-2 text-xs mt-1">
+            <input
+              type="checkbox"
+              checked={wantAudio}
+              onChange={(e) => setWantAudio(e.target.checked)}
             />
-
-            {/* IMPORTANT: use htmlFor; don't let <label> wrap siblings */}
-            <div className="flex items-center gap-2 text-xs mt-1 select-none">
-              <input
-                id="speak-toggle"
-                type="checkbox"
-                checked={wantAudio}
-                onChange={(e) => setWantAudio(e.target.checked)}
-              />
-              <label htmlFor="speak-toggle" className="cursor-pointer">
-                Speak
-              </label>
-            </div>
-          </div> {/* ✅ properly close LEFT COLUMN before buttons */}
-
-          {/* RIGHT COLUMN (Buttons) */}
-          <div className="relative z-[101] isolate flex flex-col gap-2 min-w-[200px] items-stretch">
-            <div className="flex gap-2">
-              <div className="pointer-events-auto [touch-action:manipulation]">
-                <MicButton
-                  getAccessToken={getAccessToken}
-                  sttUrl={functionUrl("stt")}
-                  onStartRecording={() => onBargeIn?.()}
-                  onPartial={(t) => setText(t)}
-                  onTranscript={(finalText) => {
-                    onBargeIn?.();
-                    submit(finalText);
-                  }}
-                />
-              </div>
-
-              {isStreaming ? (
-                <button
-                  type="button"
-                  // pointer events cover touch & mouse
-                  onPointerDown={onStop}
-                  onClick={onStop}
-                  className="relative px-3 py-2 rounded-lg bg-red-600/80 hover:bg-red-600 text-sm text-white pointer-events-auto [touch-action:manipulation] active:scale-[0.98]"
-                  aria-label="Stop"
-                >
-                  Stop
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onPointerDown={() => submit()}
-                  onClick={() => submit()}
-                  className="relative px-3 py-2 rounded-lg bg-blue-600/80 hover:bg-blue-600 text-sm text-white pointer-events-auto [touch-action:manipulation] active:scale-[0.98]"
-                  aria-label="Send"
-                >
-                  Send
-                </button>
-              )}
-            </div>
+            Speak
+          </label>
+        </div>
+        <div className="flex flex-col gap-2 min-w-[200px] items-stretch">
+          <div className="flex gap-2">
+            <MicButton
+              getAccessToken={getAccessToken}
+              sttUrl={functionUrl("stt")}
+              onStartRecording={() => onBargeIn?.()}
+              onPartial={(t) => setText(t)}          // live partials
+              onTranscript={(finalText) => {         // auto-send on final
+                onBargeIn?.();
+                submit(finalText);
+              }}
+            />
+            {isStreaming ? (
+              <button
+                onClick={onStop}
+                className="px-3 py-2 rounded-lg bg-red-600/80 hover:bg-red-600 text-sm"
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                onClick={() => submit()}
+                className="px-3 py-2 rounded-lg bg-blue-600/80 hover:bg-blue-600 text-sm"
+              >
+                Send
+              </button>
+            )}
           </div>
         </div>
       </div>
