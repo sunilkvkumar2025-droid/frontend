@@ -175,7 +175,7 @@ export default function ChatWindow() {
                 text: "Hi! I'm Coco. Tell me about your day and let's practice English together!",
             },
         ]);
-        setSessionId(null);
+        setSessionId(sessionId);
         setShowScoreModal(false);
         setScoreData(null);
         setPhase("idle");
