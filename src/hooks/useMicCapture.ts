@@ -38,7 +38,7 @@ export function useMicCapture() {
         mediaRef.current = null;
         setStream(null); 
       };
-      recRef.current.start(150);
+      recRef.current.start(300);
       setIsRecording(true);
     } catch (e) {
       const error = e as Error;
