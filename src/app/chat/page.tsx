@@ -5,7 +5,6 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import TopNav from "../../components/layout/TopNav";
 import ChatWindow from "../../components/chat/ChatWindow";
 import { useAuth } from "../../hooks/useAuth";
@@ -33,21 +32,10 @@ export default function ChatPage() {
   return (
     <div className="min-h-screen bg-zinc-950">
       <TopNav />
-
-      {/* Main content with padding for fixed TopNav */}
+      {/* Stage below TopNav; 5rem ≈ pt-20 (adjust if your TopNav height differs) */}
       <div className="pt-20">
-        {/* Back to Home button */}
-        <div className="w-full mx-auto max-w-3xl px-4 pt-4">
-          <Link href="/">
-            <button className="flex items-center gap-2 text-neutral-400 hover:text-white transition-colors text-sm">
-              <span>←</span>
-              <span>Back to Home</span>
-            </button>
-          </Link>
-        </div>
-
-        {/* Chat Window */}
-        <div className="w-full mx-auto max-w-3xl px-4 py-6">
+        {/* 👇 allow page to scroll; give the stage a real height context */}
+        <div className="mx-auto max-w-6xl px-4 h-[calc(100vh-5rem)] min-h-0">
           <ChatWindow />
         </div>
       </div>
