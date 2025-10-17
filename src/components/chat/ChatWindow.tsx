@@ -1,7 +1,7 @@
 // File: components/chat/ChatWindow.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import Link from "next/link";
 import MessageList from "./MessageList";
 import ChatInput from "./ChatInput";
@@ -49,10 +49,38 @@ export default function ChatWindow() {
   const { endSession, isEnding } = useEndSession();
   const [phase, setPhase] = useState<Phase>("idle");
 
+  const scrollBoxRef = useRef<HTMLDivElement | null>(null);
+  const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
+
+  // measure sticky bar height so last message never hides
+  const chatbarRef = useRef<HTMLDivElement | null>(null);
+  const [chatbarH, setChatbarH] = useState(72);
+  useLayoutEffect(() => {
+    if (!chatbarRef.current) return;
+    const ro = new ResizeObserver(([entry]) => {
+      if (entry?.contentRect?.height) setChatbarH(Math.ceil(entry.contentRect.height));
+    });
+    ro.observe(chatbarRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  // 🆕 keep user near bottom
+  const scrollToNinetyPercent = (instant = false) => {
+    const el = scrollBoxRef.current;
+    if (!el) return;
+    const range = Math.max(0, el.scrollHeight - el.clientHeight);
+    const target = Math.floor(range * 0.95);
+    el.scrollTo({ top: target, behavior: instant ? "auto" : "smooth" });
+  };
+
   useEffect(() => {
     const s = new URLSearchParams(window.location.search).get("s");
     if (s) setSessionId(s);
   }, []);
+
+  useEffect(() => {
+    scrollToNinetyPercent(true);
+  }, [messages, isStreaming]);
 
   const getAccessToken = useMemo(() => {
     return async () => {
@@ -91,9 +119,7 @@ export default function ChatWindow() {
         (evt) => {
           if (evt.type === "token") {
             setMessages((m) =>
-              m.map((msg) =>
-                msg.id === assistantId ? { ...msg, text: msg.text + evt.text } : msg
-              )
+              m.map((msg) => (msg.id === assistantId ? { ...msg, text: msg.text + evt.text } : msg))
             );
           } else if (evt.type === "audio" && userMsg.wantAudio) {
             enqueue(evt.url);
@@ -150,61 +176,103 @@ export default function ChatWindow() {
   }, [audioRef]);
 
   return (
-    // Grid container
-    <div className="grid grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)] gap-4 w-full">
+    // ✅ CHANGED: stack vertically on mobile, side-by-side from sm+
+    <div className="flex flex-col sm:flex-row w-full h-full min-h-screen overflow-hidden"> {/* ✅ CHANGED */}
       {/* LEFT PANEL */}
-      <aside className="sticky top-20 h-fit shrink-0 rounded-2xl p-4 flex flex-col items-center gap-4 bg-zinc-900/40">
-        <Link
-          href="/"
-          className="self-start inline-flex items-center gap-2 text-neutral-300 hover:text-white text-sm transition-colors"
-        >
-          <span>←</span>
-          <span>Back to Home</span>
-        </Link>
-
-        <div className="w-full h-px bg-zinc-800 my-1" />
-
-        <AvatarPhoto
-          phase={phase}
-          level={ttsLevel}
-          width={240}
-          height={240}
-          baseSrc="/avatars/coco/base.png"
-          mouthOpenSrc="/avatars/coco/mouth-open.png"
-        />
+      {/* ✅ CHANGED: hide sidebar on small screens */}
+      <aside className="hidden sm:flex shrink-0 w-[260px] md:w-[300px] h-full bg-zinc-900/40 border-r border-zinc-800"> {/* ✅ CHANGED */}
+        <div className="h-full flex flex-col p-4">
+          <Link href="/" className="inline-flex items-center gap-2 text-neutral-300 hover:text-white text-sm mb-2">
+            <span>←</span><span>Back to Home</span>
+          </Link>
+          <div className="w-full h-px bg-zinc-800 my-2" />
+          <div className="flex-1 flex items-start justify-center">
+            <AvatarPhoto
+              phase={phase}
+              level={ttsLevel}
+              width={180}   // ✅ CHANGED: slightly smaller for mid screens
+              height={180}  // ✅ CHANGED
+              baseSrc="/avatars/coco/base.png"
+              mouthOpenSrc="/avatars/coco/mouth-open.png"
+            />
+          </div>
+        </div>
       </aside>
 
-      {/* RIGHT PANEL — browser will scroll this naturally */}
-      <section className="flex flex-col w-full">
-        {/* Messages grow naturally → browser scroll */}
-        <div className="flex-1 flex flex-col justify-end min-h-[70vh] pb-4">
-          <MessageList messages={messages} isStreaming={isStreaming} />
+      {/* CHAT AREA */}
+      <section
+        ref={scrollBoxRef}
+        className="
+          flex flex-col flex-1 min-w-0 h-full overflow-y-auto scroll-smooth
+          rounded-none sm:rounded-2xl                         /* ✅ CHANGED */
+          p-2 sm:p-6                                         /* ✅ CHANGED */
+          scroll-pt-6
+          [scrollbar-gutter:stable] overscroll-contain
+          custom-scroll
+          bg-zinc-950                                        /* ✅ CHANGED: ensure full black behind */
+        "
+        style={{
+          // keep space for sticky bar on very short viewports
+          paddingBottom: chatbarH + 4,
+        }}
+      >
+        {/* Frame */}
+        <div className="flex-1 min-w-0">
+          <div className="h-full rounded-xl sm:rounded-2xl border border-zinc-800/60 bg-zinc-950"> {/* ✅ CHANGED: softer border */}
+            {/* Scrollable message column */}
+            <div className="h-full">
+              <MessageList messages={messages} isStreaming={isStreaming} />
+              <div ref={bottomAnchorRef} className="h-0" />
+            </div>
+          </div>
         </div>
 
-        {/* Sticky input at browser bottom */}
-        <div className="sticky bottom-0 left-0 right-0 bg-zinc-950/95 py-3 px-2 z-10">
-          {sessionId && messages.length > 2 && (
-            <div className="flex justify-end relative top-13">
+        {/* Sticky input (measured) */}
+        <div
+          ref={chatbarRef}
+          className="
+            sticky bottom-0 left-0 right-0 z-30
+            bg-zinc-950/95
+            px-2 sm:px-6 lg:px-10                 /* ✅ CHANGED */
+            py-2 sm:py-4                          /* ✅ CHANGED */
+            shadow-[0_-1px_0_0_#27272a]
+            backdrop-blur
+            pb-[env(safe-area-inset-bottom)]      /* ✅ CHANGED: iOS safe area */
+          "
+        >
+          <div className="flex items-center gap-2">
+            {/* ChatInput expands to fill row */}
+            <div className="flex-1">
+              <ChatInput
+                onSend={handleSend}
+                onStop={() => {
+                  abort();
+                  setIsStreaming(false);
+                  setPhase("idle");
+                }}
+                onBargeIn={handleBargeIn}
+                isStreaming={isStreaming}
+              />
+            </div>
+
+            {/* End Session button at the end of row */}
+            {sessionId && messages.length > 2 && (
               <button
                 onClick={handleEndSession}
                 disabled={isStreaming || isEnding}
-                className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-xl text-sm font-medium transition-colors"
+                className="
+                  px-3 sm:px-4 py-2
+                  bg-neutral-800 hover:bg-neutral-700
+                  rounded-xl text-sm font-medium transition-colors
+                  whitespace-nowrap
+                "
+                title="End Session"
               >
-                🏁 End Session
+                <span className="sm:hidden">🏁</span>            {/* ✅ CHANGED: icon-only on mobile */}
+                <span className="hidden sm:inline">🏁 End Session</span> {/* ✅ CHANGED */}
               </button>
-            </div>
-          )}
-
-          <ChatInput
-            onSend={handleSend}
-            onStop={() => {
-              abort();
-              setIsStreaming(false);
-              setPhase("idle");
-            }}
-            onBargeIn={handleBargeIn}
-            isStreaming={isStreaming}
-          />
+            )}
+          </div>
         </div>
       </section>
 
