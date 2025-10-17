@@ -12,7 +12,7 @@ export default function MessageList({
     isStreaming: boolean;
 }) {
 return (
-    <div className="flex-1 min-h-[60vh] border rounded-2xl p-3 bg-neutral-950/30 overflow-y-auto space-y-3">
+    <div className="flex-1 min-h-[60vh]  rounded-2xl p-3 bg-neutral-950/30 overflow-y-auto space-y-3">
      {messages.map((m) => (
         <div key={m.id} className="flex">
     <div
