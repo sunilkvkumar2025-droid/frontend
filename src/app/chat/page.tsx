@@ -1,6 +1,4 @@
 // File: app/chat/page.tsx
-// Next.js (App Router) page wrapper
-
 "use client";
 
 import { useEffect } from "react";
@@ -14,9 +12,7 @@ export default function ChatPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.push("/login");
-    }
+    if (!loading && !user) router.push("/login");
   }, [user, loading, router]);
 
   if (loading) {
@@ -26,19 +22,17 @@ export default function ChatPage() {
       </div>
     );
   }
-
   if (!user) return null;
 
   return (
     <div className="min-h-screen bg-zinc-950">
+      {/* Ensure TopNav is fixed (or at least takes exactly ~64px height) */}
       <TopNav />
-      {/* Stage below TopNav; 5rem ≈ pt-20 (adjust if your TopNav height differs) */}
-      <div className="pt-20">
-        {/* 👇 allow page to scroll; give the stage a real height context */}
-        <div className="mx-auto max-w-6xl px-4 h-[calc(100vh-5rem)] min-h-0">
-          <ChatWindow />
-        </div>
-      </div>
+
+      {/* Full-bleed canvas below the nav. Adjust top-16 to match TopNav height */}
+      <main className="fixed inset-x-0 top-14 bottom-0 bg-zinc-950">
+        <ChatWindow />
+      </main>
     </div>
   );
 }
