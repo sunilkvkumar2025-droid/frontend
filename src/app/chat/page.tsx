@@ -25,12 +25,16 @@ export default function ChatPage() {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-zinc-950">
-      {/* Ensure TopNav is fixed (or at least takes exactly ~64px height) */}
+    <div className="min-h-screen bg-zinc-950 text-white">
+      {/* Top bar sits above the fixed chat region */}
       <TopNav />
 
-      {/* Full-bleed canvas below the nav. Adjust top-16 to match TopNav height */}
-      <main className="fixed inset-x-0 top-14 bottom-0 bg-zinc-950">
+      {/* FIXED chat region:
+         - top-[56px]/top-14 must match TopNav height
+         - bottom-0 anchors to bottom of viewport
+         - overflow-hidden so the page doesn't double-scroll
+      */}
+      <main className="fixed inset-x-0 top-14 bottom-0 bg-zinc-950 overflow-hidden">
         <ChatWindow />
       </main>
     </div>
