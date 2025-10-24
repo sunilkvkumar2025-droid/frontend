@@ -37,6 +37,7 @@ const supabase = createClient(
 type Phase = "idle" | "userRecording" | "llm" | "tts";
 
 export default function ChatWindow() {
+  // --- state ---
   const [messages, setMessages] = useState<Message[]>([
     { id: "m-welcome", role: "assistant", text: "Hi! I’m Coco. Tell me about your day!" },
   ]);
@@ -44,44 +45,51 @@ export default function ChatWindow() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [showScoreModal, setShowScoreModal] = useState(false);
   const [scoreData, setScoreData] = useState<ScoreData | null>(null);
+
   const { enqueue, clear, level: ttsLevel, audioRef } = useAudioQueue();
   const { send, abort } = useSSEChat();
   const { endSession, isEnding } = useEndSession();
   const [phase, setPhase] = useState<Phase>("idle");
 
-  const scrollBoxRef = useRef<HTMLDivElement | null>(null);
+  // --- layout refs for scroll + footer height ---
+  const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
 
-  // measure sticky bar height so last message never hides
-  const chatbarRef = useRef<HTMLDivElement | null>(null);
-  const [chatbarH, setChatbarH] = useState(72);
+  const footerRef = useRef<HTMLDivElement | null>(null);
+  const [footerH, setFooterH] = useState(72);
+
   useLayoutEffect(() => {
-    if (!chatbarRef.current) return;
+    if (!footerRef.current) return;
     const ro = new ResizeObserver(([entry]) => {
-      if (entry?.contentRect?.height) setChatbarH(Math.ceil(entry.contentRect.height));
+      if (entry?.contentRect?.height) {
+        setFooterH(Math.ceil(entry.contentRect.height));
+      }
     });
-    ro.observe(chatbarRef.current);
+    ro.observe(footerRef.current);
     return () => ro.disconnect();
   }, []);
 
-  // 🆕 keep user near bottom
-  const scrollToNinetyPercent = (instant = false) => {
-    const el = scrollBoxRef.current;
+  // scroll helper
+  const scrollNearBottom = (instant = false) => {
+    const el = scrollAreaRef.current;
     if (!el) return;
-    const range = Math.max(0, el.scrollHeight - el.clientHeight);
-    const target = Math.floor(range * 0.95);
+    const maxScrollable = Math.max(0, el.scrollHeight - el.clientHeight);
+    const target = Math.floor(maxScrollable * 0.95);
     el.scrollTo({ top: target, behavior: instant ? "auto" : "smooth" });
   };
 
+  // pull sessionId from URL
   useEffect(() => {
     const s = new URLSearchParams(window.location.search).get("s");
     if (s) setSessionId(s);
   }, []);
 
+  // keep view near bottom when new content arrives
   useEffect(() => {
-    scrollToNinetyPercent(true);
+    scrollNearBottom(true);
   }, [messages, isStreaming]);
 
+  // auth helper
   const getAccessToken = useMemo(() => {
     return async () => {
       const { data } = await supabase.auth.getSession();
@@ -89,6 +97,7 @@ export default function ChatWindow() {
     };
   }, []);
 
+  // barge-in: interrupt AI speech/stream
   const handleBargeIn = () => {
     abort();
     clear();
@@ -96,6 +105,7 @@ export default function ChatWindow() {
     setPhase("idle");
   };
 
+  // send user text (or transcript)
   const handleSend = async (input: string, wantAudio: boolean) => {
     if (!input.trim() || isStreaming) return;
     if (!sessionId) {
@@ -106,8 +116,15 @@ export default function ChatWindow() {
     resumeAudio();
     clear();
 
-    const userMsg: Message = { id: `u-${Date.now()}`, role: "user", text: input.trim(), wantAudio };
+    const userMsg: Message = {
+      id: `u-${Date.now()}`,
+      role: "user",
+      text: input.trim(),
+      wantAudio,
+    };
     const assistantId = `a-${Date.now()}`;
+
+    // optimistic append
     setMessages((m) => [...m, userMsg, { id: assistantId, role: "assistant", text: "" }]);
 
     setIsStreaming(true);
@@ -118,8 +135,11 @@ export default function ChatWindow() {
         { sessionId, text: userMsg.text, wantAudio, getAccessToken },
         (evt) => {
           if (evt.type === "token") {
+            // stream model tokens
             setMessages((m) =>
-              m.map((msg) => (msg.id === assistantId ? { ...msg, text: msg.text + evt.text } : msg))
+              m.map((msg) =>
+                msg.id === assistantId ? { ...msg, text: msg.text + evt.text } : msg
+              )
             );
           } else if (evt.type === "audio" && userMsg.wantAudio) {
             enqueue(evt.url);
@@ -131,10 +151,14 @@ export default function ChatWindow() {
         }
       );
     } catch {
+      // graceful fallback if SSE fails
       setMessages((m) =>
         m.map((msg) =>
           msg.id === assistantId
-            ? { ...msg, text: msg.text || "(connection error — please try again)" }
+            ? {
+                ...msg,
+                text: msg.text || "(connection error — please try again)",
+              }
             : msg
         )
       );
@@ -143,6 +167,7 @@ export default function ChatWindow() {
     }
   };
 
+  // end session -> show score modal
   const handleEndSession = async () => {
     if (!sessionId) return;
     const result = await endSession(sessionId, null);
@@ -153,13 +178,16 @@ export default function ChatWindow() {
   };
 
   const handleStartNewSession = () => {
-    setMessages([{ id: "m-welcome", role: "assistant", text: "Hi! I’m Coco. Let’s talk!" }]);
+    setMessages([
+      { id: "m-welcome", role: "assistant", text: "Hi! I’m Coco. Let’s talk!" },
+    ]);
     setSessionId(null);
     setShowScoreModal(false);
     setScoreData(null);
     setPhase("idle");
   };
 
+  // track shared audio element to know if TTS is active
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
@@ -176,22 +204,29 @@ export default function ChatWindow() {
   }, [audioRef]);
 
   return (
-    // ✅ CHANGED: stack vertically on mobile, side-by-side from sm+
-    <div className="flex flex-col sm:flex-row w-full h-full min-h-screen overflow-hidden"> {/* ✅ CHANGED */}
-      {/* LEFT PANEL */}
-      {/* ✅ CHANGED: hide sidebar on small screens */}
-      <aside className="hidden sm:flex shrink-0 w-[260px] md:w-[300px] h-full bg-zinc-900/40 border-r border-zinc-800"> {/* ✅ CHANGED */}
+    // IMPORTANT:
+    // - h-full means: fill the <main> fixed area from page.tsx
+    // - overflow-hidden on root stops body scrolling underneath on iOS
+    <div className="h-full w-full bg-zinc-950 text-white flex flex-col sm:flex-row overflow-hidden">
+      {/* LEFT SIDEBAR (hidden on phones) */}
+      <aside className="hidden sm:flex shrink-0 w-[240px] md:w-[280px] lg:w-[300px] h-full bg-zinc-900/40 border-r border-zinc-800">
         <div className="h-full flex flex-col p-4">
-          <Link href="/" className="inline-flex items-center gap-2 text-neutral-300 hover:text-white text-sm mb-2">
-            <span>←</span><span>Back to Home</span>
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 text-neutral-300 hover:text-white text-sm mb-2"
+          >
+            <span>←</span>
+            <span>Back to Home</span>
           </Link>
+
           <div className="w-full h-px bg-zinc-800 my-2" />
+
           <div className="flex-1 flex items-start justify-center">
             <AvatarPhoto
               phase={phase}
               level={ttsLevel}
-              width={180}   // ✅ CHANGED: slightly smaller for mid screens
-              height={180}  // ✅ CHANGED
+              width={180}
+              height={180}
               baseSrc="/avatars/coco/base.png"
               mouthOpenSrc="/avatars/coco/mouth-open.png"
             />
@@ -199,50 +234,39 @@ export default function ChatWindow() {
         </div>
       </aside>
 
-      {/* CHAT AREA */}
-      <section
-        ref={scrollBoxRef}
-        className="
-          flex flex-col flex-1 min-w-0 h-full overflow-y-auto scroll-smooth
-          rounded-none sm:rounded-2xl                         /* ✅ CHANGED */
-          p-2 sm:p-6                                         /* ✅ CHANGED */
-          scroll-pt-6
-          [scrollbar-gutter:stable] overscroll-contain
-          custom-scroll
-          bg-zinc-950                                        /* ✅ CHANGED: ensure full black behind */
-        "
-        style={{
-          // keep space for sticky bar on very short viewports
-          paddingBottom: chatbarH + 4,
-        }}
-      >
-        {/* Frame */}
-        <div className="flex-1 min-w-0">
-          <div className="h-full rounded-xl sm:rounded-2xl border border-zinc-800/60 bg-zinc-950"> {/* ✅ CHANGED: softer border */}
-            {/* Scrollable message column */}
-            <div className="h-full">
-              <MessageList messages={messages} isStreaming={isStreaming} />
-              <div ref={bottomAnchorRef} className="h-0" />
-            </div>
+      {/* CHAT COLUMN */}
+      {/* min-h-0 + flex-col prevents footer overlap on short screens */}
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-zinc-950">
+        {/* Scrollable message area */}
+        <div
+          ref={scrollAreaRef}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain scroll-smooth p-2 sm:p-6 [scrollbar-gutter:stable] custom-scroll"
+          style={{
+            paddingBottom: footerH + 4, // keep last bubble visible
+          }}
+        >
+          <div className="h-full rounded-xl sm:rounded-2xl  border-zinc-800/60 bg-zinc-950">
+            <MessageList messages={messages} isStreaming={isStreaming} />
+            <div ref={bottomAnchorRef} className="h-0" />
           </div>
         </div>
 
-        {/* Sticky input (measured) */}
+        {/* Sticky footer (input row + End Session) */}
         <div
-          ref={chatbarRef}
+          ref={footerRef}
           className="
             sticky bottom-0 left-0 right-0 z-30
-            bg-zinc-950/95
-            px-2 sm:px-6 lg:px-10                 /* ✅ CHANGED */
-            py-2 sm:py-4                          /* ✅ CHANGED */
+            bg-zinc-950/95 backdrop-blur
             shadow-[0_-1px_0_0_#27272a]
-            backdrop-blur
-            pb-[env(safe-area-inset-bottom)]      /* ✅ CHANGED: iOS safe area */
+            border-t border-zinc-800/60
+            px-2 sm:px-6 lg:px-10
+            py-2 sm:py-4
+            pb-[env(safe-area-inset-bottom)]
           "
         >
-          <div className="flex items-center gap-2">
-            {/* ChatInput expands to fill row */}
-            <div className="flex-1">
+          <div className="flex items-end gap-2 flex-wrap">
+            {/* ChatInput takes most of the row and is responsive */}
+            <div className="flex-1 min-w-[200px]">
               <ChatInput
                 onSend={handleSend}
                 onStop={() => {
@@ -255,27 +279,30 @@ export default function ChatWindow() {
               />
             </div>
 
-            {/* End Session button at the end of row */}
+            {/* End Session button stays visible on same row, wraps under if too tight */}
             {sessionId && messages.length > 2 && (
               <button
                 onClick={handleEndSession}
                 disabled={isStreaming || isEnding}
                 className="
-                  px-3 sm:px-4 py-2
+                  flex-shrink-0
+                  px-3 sm:px-4 h-10 sm:h-11
                   bg-neutral-800 hover:bg-neutral-700
+                  disabled:opacity-50 disabled:cursor-not-allowed
                   rounded-xl text-sm font-medium transition-colors
                   whitespace-nowrap
                 "
                 title="End Session"
               >
-                <span className="sm:hidden">🏁</span>            {/* ✅ CHANGED: icon-only on mobile */}
-                <span className="hidden sm:inline">🏁 End Session</span> {/* ✅ CHANGED */}
+                <span className="sm:hidden">🏁</span>
+                <span className="hidden sm:inline">🏁 End Session</span>
               </button>
             )}
           </div>
         </div>
-      </section>
+      </div>
 
+      {/* Score modal */}
       <ScoreResultsModal
         isOpen={showScoreModal}
         onClose={() => setShowScoreModal(false)}
