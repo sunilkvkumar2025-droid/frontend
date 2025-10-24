@@ -56,7 +56,7 @@ export default function ChatWindow() {
   const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
 
   const footerRef = useRef<HTMLDivElement | null>(null);
-  const [footerH, setFooterH] = useState(72);
+  const [footerH, setFooterH] = useState(120);
 
   useLayoutEffect(() => {
     if (!footerRef.current) return;
@@ -156,9 +156,9 @@ export default function ChatWindow() {
         m.map((msg) =>
           msg.id === assistantId
             ? {
-                ...msg,
-                text: msg.text || "(connection error — please try again)",
-              }
+              ...msg,
+              text: msg.text || "(connection error — please try again)",
+            }
             : msg
         )
       );
@@ -242,7 +242,7 @@ export default function ChatWindow() {
           ref={scrollAreaRef}
           className="flex-1 min-h-0 overflow-y-auto overscroll-contain scroll-smooth p-2 sm:p-6 [scrollbar-gutter:stable] custom-scroll"
           style={{
-            paddingBottom: footerH + 4, // keep last bubble visible
+            paddingBottom: footerH + 84, // keep last bubble visible
           }}
         >
           <div className="h-full rounded-xl sm:rounded-2xl  border-zinc-800/60 bg-zinc-950">
@@ -252,20 +252,23 @@ export default function ChatWindow() {
         </div>
 
         {/* Sticky footer (input row + End Session) */}
+
+        {/* Sticky footer (input row + End Session) */}
         <div
           ref={footerRef}
           className="
-            sticky bottom-0 left-0 right-0 z-30
-            bg-zinc-950/95 backdrop-blur
-            shadow-[0_-1px_0_0_#27272a]
-            border-t border-zinc-800/60
-            px-2 sm:px-6 lg:px-10
-            py-2 sm:py-4
-            pb-[env(safe-area-inset-bottom)]
-          "
+    sticky bottom-0 left-0 right-0 z-30
+    bg-zinc-950/95 backdrop-blur
+    shadow-[0_-1px_0_0_#27272a]
+    border-t border-zinc-800/60
+    px-2 sm:px-6 lg:px-10
+    py-2 sm:py-3
+    pb-[env(safe-area-inset-bottom)]
+  "
         >
-          <div className="flex items-end gap-2 flex-wrap">
-            {/* ChatInput takes most of the row and is responsive */}
+          {/* Flex container ensures ChatInput and End Session align horizontally */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* ChatInput takes remaining width */}
             <div className="flex-1 min-w-[200px]">
               <ChatInput
                 onSend={handleSend}
@@ -279,19 +282,19 @@ export default function ChatWindow() {
               />
             </div>
 
-            {/* End Session button stays visible on same row, wraps under if too tight */}
+            {/* End Session button stays aligned on same row */}
             {sessionId && messages.length > 2 && (
               <button
                 onClick={handleEndSession}
                 disabled={isStreaming || isEnding}
                 className="
-                  flex-shrink-0
-                  px-3 sm:px-4 h-10 sm:h-11
-                  bg-neutral-800 hover:bg-neutral-700
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                  rounded-xl text-sm font-medium transition-colors
-                  whitespace-nowrap
-                "
+          flex-shrink-0
+          px-3 sm:px-5 h-10 sm:h-11
+          bg-neutral-800 hover:bg-neutral-700
+          disabled:opacity-50 disabled:cursor-not-allowed
+          rounded-xl text-sm font-medium transition-colors
+          whitespace-nowrap text-white
+        "
                 title="End Session"
               >
                 <span className="sm:hidden">🏁</span>
@@ -300,6 +303,7 @@ export default function ChatWindow() {
             )}
           </div>
         </div>
+
       </div>
 
       {/* Score modal */}
