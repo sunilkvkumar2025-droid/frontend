@@ -74,7 +74,7 @@ export default function ChatWindow() {
     const el = scrollAreaRef.current;
     if (!el) return;
     const maxScrollable = Math.max(0, el.scrollHeight - el.clientHeight);
-    const target = Math.floor(maxScrollable * 0.98);
+    const target = Math.floor(maxScrollable * 1);
     el.scrollTo({ top: target, behavior: instant ? "auto" : "smooth" });
   };
 
