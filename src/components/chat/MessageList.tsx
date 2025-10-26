@@ -2,7 +2,127 @@
 // Renders a simple, readable message list with basic roles
 
 "use client";
+import { useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import type { Message } from "./ChatWindow";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+);
+
+const ReportErrorButton = ({
+  message
+}: {
+  message: Message
+}) => {
+  const [reporting, setReporting] = useState(false);
+  const [reported, setReported] = useState(false);
+
+  const handleReport = async () => {
+    // Step 1: Ask user what they actually said
+    const actualText = prompt(
+      `The app heard: "${message.text}"\n\n` +
+      `What did you actually say?\n\n` +
+      `(Or click Cancel if the transcription was correct)`
+    );
+
+    if (!actualText) return; // User cancelled
+
+    if (actualText.trim().toLowerCase() === message.text.trim().toLowerCase()) {
+      alert("Transcription was correct - no error to report!");
+      return;
+    }
+
+    // Step 2: Ask for error type
+    const errorType = prompt(
+      `How was it wrong?\n\n` +
+      `1 = Completely wrong (gibberish)\n` +
+      `2 = Missing words\n` +
+      `3 = Extra words\n` +
+      `4 = Wrong language detected\n` +
+      `5 = Other\n\n` +
+      `Enter number (1-5):`
+    );
+
+    const errorTypeMap: { [key: string]: string } = {
+      "1": "completely_wrong",
+      "2": "missing_words",
+      "3": "extra_words",
+      "4": "wrong_language",
+      "5": "other"
+    };
+
+    const selectedErrorType = errorTypeMap[errorType || "5"] || "other";
+
+    setReporting(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert("Not authenticated - please log in");
+        return;
+      }
+
+      if (!message.message_db_id) {
+        alert("Cannot report - message not saved to database");
+        console.error("Missing message_db_id:", message);
+        return;
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/report-stt-error`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message_id: message.message_db_id,
+            transcribed_text: message.text,
+            correction_text: actualText.trim(),
+            error_type: selectedErrorType,
+            notes: `Method: ${message.stt_metadata?.method || 'unknown'}`
+          }),
+        }
+      );
+
+      if (response.ok) {
+        setReported(true);
+        alert("✅ Thank you for reporting! This helps us improve transcription accuracy.");
+      } else {
+        const error = await response.json();
+        alert(`❌ Error reporting: ${error.error || 'Unknown error'}`);
+        console.error("Report error response:", error);
+      }
+    } catch (error: any) {
+      alert(`❌ Failed to report: ${error.message}`);
+      console.error("Report error exception:", error);
+    } finally {
+      setReporting(false);
+    }
+  };
+
+  if (reported) {
+    return (
+      <span className="text-xs text-green-400/70" title="Error reported">
+        ✓ Reported
+      </span>
+    );
+  }
+
+  return (
+    <button
+      onClick={handleReport}
+      disabled={reporting}
+      className="text-xs text-red-400/70 hover:text-red-400 underline transition-colors"
+      title="Click if the transcription is wrong"
+    >
+      {reporting ? "Reporting..." : "Wrong transcription?"}
+    </button>
+  );
+};
 
 export default function MessageList({
     messages,
@@ -25,7 +145,28 @@ return (
         <div className="text-xs opacity-70 mb-1">
         {m.role === "user" ? "You" : m.role === "assistant" ? "Coco" : "System"}
         </div>
-        <div className="whitespace-pre-wrap text-sm leading-6">{m.text}</div>
+        <div className="space-y-2">
+          {/* Correction appears FIRST (at top) */}
+          {m.correction && (
+            <div className="p-2 bg-yellow-50 border-l-4 border-yellow-400 rounded text-sm">
+              <span className="font-semibold text-yellow-800">सुधार:</span>{" "}
+              <span className="text-yellow-900">{m.correction}</span>
+            </div>
+          )}
+
+          {/* Main message text appears AFTER (below) */}
+          <div className="whitespace-pre-wrap text-sm leading-6">{m.text}</div>
+
+          {/* Add report button for user messages with STT metadata */}
+          {m.role === "user" && m.stt_metadata && (
+            <div className="flex items-center gap-2 mt-2">
+              <ReportErrorButton message={m} />
+              <span className="text-xs text-neutral-500">
+                via {m.stt_metadata.method}
+              </span>
+            </div>
+          )}
+        </div>
     </div>
 </div>
     ))}
