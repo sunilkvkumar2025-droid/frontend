@@ -157,15 +157,7 @@ return (
           {/* Main message text appears AFTER (below) */}
           <div className="whitespace-pre-wrap text-sm leading-6">{m.text}</div>
 
-          {/* Add report button for user messages with STT metadata */}
-          {m.role === "user" && m.stt_metadata && (
-            <div className="flex items-center gap-2 mt-2">
-              <ReportErrorButton message={m} />
-              <span className="text-xs text-neutral-500">
-                via {m.stt_metadata.method}
-              </span>
-            </div>
-          )}
+     
         </div>
     </div>
 </div>
