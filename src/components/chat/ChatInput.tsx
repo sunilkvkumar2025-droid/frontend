@@ -18,20 +18,25 @@ export default function ChatInput({
   onBargeIn,
   onEndSession,
 }: {
-  onSend: (text: string, wantAudio: boolean) => void;
+  onSend: (text: string, wantAudio: boolean, stt_metadata?: any) => void;
   onStop: () => void;
   isStreaming: boolean;
   onBargeIn?: () => void;
   onEndSession?: () => void;
 }) {
+  const [text, setText] = useState("");
   const [wantAudio, setWantAudio] = useState(true);
+  const [lastSTTMetadata, setLastSTTMetadata] = useState<any>(null);
+  const [sttStartTime, setSTTStartTime] = useState<number | null>(null);
 
   const toggleAudio = () => setWantAudio((prev) => !prev);
 
-  const submit = (t: string) => {
+  const submit = (t: string, stt_metadata?: any) => {
     const s = t.trim();
     if (!s) return;
-    onSend(s, wantAudio);
+    onSend(s, wantAudio, stt_metadata || lastSTTMetadata);
+    setText("");
+    setLastSTTMetadata(null);
   };
 
   const getAccessToken = async () =>
@@ -73,10 +78,23 @@ export default function ChatInput({
           <MicButton
             getAccessToken={getAccessToken}
             sttUrl={functionUrl("stt")}
-            onStartRecording={() => onBargeIn?.()}
+            onStartRecording={() => {
+                onBargeIn?.();
+                setSTTStartTime(Date.now()); // Start timing STT
+              }}
+            onPartial={(t) => setText(t)}
             onTranscript={(finalText) => {
               onBargeIn?.();
-              submit(finalText);
+              // Capture STT metadata
+                const metadata = {
+                  method: "web-speech-api",
+                  language: "en-IN",
+                  duration_ms: sttStartTime ? Date.now() - sttStartTime : undefined,
+                  timestamp: new Date().toISOString(),
+                };
+
+                setSTTStartTime(null); // Reset timer
+                submit(finalText, metadata);
             }}
           />
 
