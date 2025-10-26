@@ -20,7 +20,10 @@ export function useAudioQueue() {
   // Expose the shared element via ref if other code needs it
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const enqueue = (url: string) => setQueue((q) => [...q, url]);
+  const enqueue = (url: string) => {
+    console.log("[AudioQueue] Enqueueing audio:", url);
+    setQueue((q) => [...q, url]);
+  };
 
   const clear = () => {
     setQueue([]);
@@ -90,15 +93,29 @@ export function useAudioQueue() {
 
     const [next, ...rest] = queue;
     const playNext = async () => {
+      console.log("[AudioQueue] Playing audio (full URL):", next);
+      console.log("[AudioQueue] Playing audio (first 100 chars):", next?.substring(0, 100) + "...");
+      console.log("[AudioQueue] URL starts with:", next?.substring(0, 30));
       audio.src = next;
+      console.log("▶️ NOW PLAYING - audio.src set to:", audio.src?.substring(0, 100) + "...");
       try {
         // Resume context on first user gesture elsewhere; if needed:
         await sharedCtx?.resume();
+        console.log("[AudioQueue] AudioContext state:", sharedCtx?.state);
         await audio.play();
-      } catch {}
+        console.log("[AudioQueue] Audio playing successfully");
+      } catch (err) {
+        console.error("[AudioQueue] Error playing audio:", err);
+      }
     };
-    const onEnded = () => setQueue(rest);
-    const onError = () => setQueue(rest);
+    const onEnded = () => {
+      console.log("🎵 Audio track ended, moving to next in queue");
+      setQueue(rest);
+    };
+    const onError = (e: Event) => {
+      console.error("❌ Audio error:", e);
+      setQueue(rest);
+    };
 
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("error", onError);
