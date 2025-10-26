@@ -1,4 +1,4 @@
-// File: hooks/useSSEChat.ts 
+// File: hooks/useSSEChat.ts
 // Public API defined
 "use client";
 import { useRef } from "react";
@@ -8,7 +8,8 @@ import { functionUrl, ssePost } from "../lib/api";
 export type ChatEvent =
 | { type: "token"; text: string }
 | { type: "audio"; url: string; seq?: number }
-| { type: "done"; messageId?: string };
+| { type: "audio_error"; message: string }
+| { type: "done"; messageId?: string; fullText?: string };
 
 
 export type SendChatArgs = {
@@ -30,22 +31,22 @@ function safeJson<T = unknown>(s: string): T | null {
 
 export function useSSEChat() {
     const abortRef = useRef<AbortController | null>(null);
-    
-    
+
+
     const send = async (
         { sessionId, text, wantAudio, userMessage, getAccessToken }: SendChatArgs,
         onEvent: (e: ChatEvent) => void
     ) => {
     const token = await getAccessToken();
     if (!token) throw new Error("Not authenticated");
-    
-    
+
+
     // Ensure only one active stream
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     const url = functionUrl("chat");
-    
+
     const payload = { sessionId, userMessage: userMessage ?? text, wantAudio };
     console.log("[SSE] POST chat", payload);
 
@@ -56,7 +57,7 @@ export function useSSEChat() {
     const res = await ssePost({
     url,
     token,
-    body: payload,   
+    body: payload,
     signal: ctrl.signal,
     });
 
@@ -73,6 +74,7 @@ export function useSSEChat() {
     let gotDone = false;
     for await (const { ev, data } of parseSSE(body)) {
     if (ctrl.signal.aborted) break;
+    console.log("[SSE] Event received:", ev, "data:", data);
     const parsed = safeJson<{
       text?: string;
       url?: string;
@@ -83,12 +85,18 @@ export function useSSEChat() {
     const t = typeof parsed.text === "string" ? parsed.text : String(parsed);
     onEvent({ type: "token", text: t });
     } else if (ev === "audio") {
+    console.log("[SSE] Audio event parsed:", { url: parsed.url, seq: parsed.seq });
     const u = typeof parsed.url === "string" ? parsed.url : String(parsed);
     const seq = typeof parsed.seq === "number" ? parsed.seq : undefined;
     onEvent({ type: "audio", url: u, seq });
+    } else if (ev === "audio_error") {
+    console.error("[SSE] Audio error:", parsed);
+    const msg = typeof parsed.message === "string" ? parsed.message : JSON.stringify(parsed);
+    onEvent({ type: "audio_error", message: msg });
     } else if (ev === "done") {
     gotDone = true;
-    onEvent({ type: "done", messageId: parsed?.messageId });
+    const fullText = parsed.fullText || parsed.full_text;
+    onEvent({ type: "done", messageId: parsed?.messageId, fullText });
     break;
     }
     }
