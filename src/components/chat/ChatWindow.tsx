@@ -13,7 +13,25 @@ import { AvatarPhoto } from "../avatar/AvatarPhoto";
 import { createClient } from "@supabase/supabase-js";
 
 export type Role = "user" | "assistant" | "system";
-export type Message = { id: string; role: Role; text: string; wantAudio?: boolean };
+export type Message = {
+  id: string;
+  role: Role;
+  text: string;
+  wantAudio?: boolean; // stored per turn
+  correction?: string | null;
+  appreciation?: string | null;
+  contribution?: string | null;
+  question?: string | null;
+  stt_metadata?: {
+    method: string;          // "web-speech-api" for now
+    language: string;        // "en-IN"
+    timestamp: string;
+    duration_ms?: number;
+    user_corrected?: boolean;
+    correction_text?: string;
+  };
+  message_db_id?: number; // Database ID for error reporting
+};
 
 type ScoreData = {
   rubric: { pronunciation: number | null; content: number; vocabulary: number; grammar: number };
@@ -106,7 +124,7 @@ export default function ChatWindow() {
   };
 
   // send user text (or transcript)
-  const handleSend = async (input: string, wantAudio: boolean) => {
+  const handleSend = async (input: string, wantAudio: boolean, stt_metadata?: any) => {
     if (!input.trim() || isStreaming) return;
     if (!sessionId) {
       alert("No active session.");
@@ -121,11 +139,42 @@ export default function ChatWindow() {
       role: "user",
       text: input.trim(),
       wantAudio,
+      stt_metadata, // Include STT metadata
     };
     const assistantId = `a-${Date.now()}`;
 
     // optimistic append
     setMessages((m) => [...m, userMsg, { id: assistantId, role: "assistant", text: "" }]);
+
+    // Save user message to database with STT metadata
+    try {
+      const { data, error } = await supabase
+        .from("messages")
+        .insert({
+          session_id: sessionId,
+          role: "user",
+          content: userMsg.text,
+          stt_metadata: userMsg.stt_metadata,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Failed to save message:", error);
+      } else if (data) {
+        // Store the database ID for error reporting
+        userMsg.message_db_id = data.id;
+
+        // Update the message in state with the DB ID
+        setMessages(prev =>
+          prev.map(msg =>
+            msg.id === userMsg.id ? { ...msg, message_db_id: data.id } : msg
+          )
+        );
+      }
+    } catch (e) {
+      console.error("Error saving message:", e);
+    }
 
     setIsStreaming(true);
     setPhase("llm");
@@ -135,30 +184,58 @@ export default function ChatWindow() {
         { sessionId, text: userMsg.text, wantAudio, getAccessToken },
         (evt) => {
           if (evt.type === "token") {
-            // stream model tokens
             setMessages((m) =>
               m.map((msg) =>
                 msg.id === assistantId ? { ...msg, text: msg.text + evt.text } : msg
               )
             );
-          } else if (evt.type === "audio" && userMsg.wantAudio) {
-            enqueue(evt.url);
-            setPhase("tts");
+          } else if (evt.type === "audio") {
+            console.log("[ChatWindow] Audio event received");
+            console.log("🔊 AUDIO URL (full):", evt.url);
+            console.log("🔊 AUDIO URL (first 100 chars):", evt.url?.substring(0, 100) + "...");
+            console.log("🔊 URL starts with:", evt.url?.substring(0, 30));
+            console.log("[ChatWindow] wantAudio:", userMsg.wantAudio);
+
+            if (userMsg.wantAudio) {
+              console.log("▶️ Enqueueing audio for playback");
+              enqueue(evt.url);
+              setPhase("tts");
+            }
+          } else if (evt.type === "audio_error") {
+            console.error("[ChatWindow] Audio error:", evt.message);
+            // Still show the text response even if audio failed
           } else if (evt.type === "done") {
             setIsStreaming(false);
             if (!userMsg.wantAudio) setPhase("idle");
+
+            // Parse fullText and extract structured fields
+            setMessages((prev) => {
+              const updated = [...prev];
+              const lastMsg = updated[updated.length - 1];
+
+              if (lastMsg && lastMsg.role === "assistant" && evt.fullText) {
+                try {
+                  const parsed = JSON.parse(evt.fullText);
+                  lastMsg.correction = parsed.correction || null;
+                  lastMsg.appreciation = parsed.appreciation || null;
+                  lastMsg.contribution = parsed.contribution || null;
+                  lastMsg.question = parsed.question || null;
+                } catch (e) {
+                  console.warn("Could not parse fullText as JSON:", e);
+                }
+              }
+
+              return updated;
+            });
           }
         }
       );
-    } catch {
-      // graceful fallback if SSE fails
+    } catch (e) {
+      console.error("stream error", e);
       setMessages((m) =>
         m.map((msg) =>
           msg.id === assistantId
-            ? {
-              ...msg,
-              text: msg.text || "(connection error — please try again)",
-            }
+            ? { ...msg, text: msg.text || "(connection error — please try again)" }
             : msg
         )
       );
@@ -191,8 +268,14 @@ export default function ChatWindow() {
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    const onPlay = () => setPhase("tts");
-    const onEnded = () => setPhase("idle");
+    const onPlay = () => {
+      console.log("▶️ Audio started playing");
+      setPhase("tts");
+    };
+    const onEnded = () => {
+      console.log("✅ Audio track ended, setting phase to idle");
+      setPhase("idle");
+    };
     el.addEventListener("play", onPlay);
     el.addEventListener("ended", onEnded);
     el.addEventListener("pause", onEnded);
@@ -204,9 +287,7 @@ export default function ChatWindow() {
   }, [audioRef]);
 
   return (
-    // IMPORTANT:
-    // - h-full means: fill the <main> fixed area from page.tsx
-    // - overflow-hidden on root stops body scrolling underneath on iOS
+    // root
     <div className="h-full w-full bg-zinc-950 text-white flex flex-col sm:flex-row overflow-hidden">
       {/* LEFT SIDEBAR (hidden on phones) */}
       <aside className="hidden sm:flex shrink-0 w-[240px] md:w-[280px] lg:w-[300px] h-full bg-zinc-900/40 border-r border-zinc-800">
@@ -235,40 +316,43 @@ export default function ChatWindow() {
       </aside>
 
       {/* CHAT COLUMN */}
-      {/* min-h-0 + flex-col prevents footer overlap on short screens */}
       <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-zinc-950">
         {/* Scrollable message area */}
         <div
           ref={scrollAreaRef}
           className="flex-1 min-h-0 overflow-y-auto overscroll-contain scroll-smooth p-2 sm:p-6 [scrollbar-gutter:stable] custom-scroll"
           style={{
-            paddingBottom: footerH + 84, // keep last bubble visible
+            // ⬇ give the scrollable area extra bottom padding equal to footer height + buffer
+            paddingBottom: footerH + 24,
           }}
         >
-          <div className="h-full rounded-xl sm:rounded-2xl  border-zinc-800/60 bg-zinc-950">
+          {/* ⬇ remove h-full here so it doesn't force content to stick to bottom */}
+          <div className="rounded-xl sm:rounded-2xl border-zinc-800/60 bg-zinc-950">
             <MessageList messages={messages} isStreaming={isStreaming} />
+
+            {/* ⬇ spacer so last bubble never hugs the border */}
+            <div className="h-6 sm:h-8" />
+
+            {/* (optional) anchor if you auto-scroll to this */}
             <div ref={bottomAnchorRef} className="h-0" />
           </div>
         </div>
 
         {/* Sticky footer (input row + End Session) */}
-
-        {/* Sticky footer (input row + End Session) */}
         <div
           ref={footerRef}
           className="
-    sticky bottom-0 left-0 right-0 z-30
-    bg-zinc-950/95 backdrop-blur
-    shadow-[0_-1px_0_0_#27272a]
-    border-t border-zinc-800/60
-    px-2 sm:px-6 lg:px-10
-    py-2 sm:py-3
-    pb-[env(safe-area-inset-bottom)]
-  "
+            sticky bottom-0 left-0 right-0 z-30
+            bg-zinc-950/95 backdrop-blur
+            shadow-[0_-1px_0_0_#27272a]
+            border-t border-zinc-800/60
+            px-2 sm:px-6 lg:px-10
+            py-2 sm:py-3
+            pb-[env(safe-area-inset-bottom)]
+          "
         >
-          {/* Flex container ensures ChatInput and End Session align horizontally */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* ChatInput takes remaining width */}
+            {/* ChatInput grows */}
             <div className="flex-1 min-w-[200px]">
               <ChatInput
                 onSend={handleSend}
@@ -282,19 +366,19 @@ export default function ChatWindow() {
               />
             </div>
 
-            {/* End Session button stays aligned on same row */}
+            {/* End Session button on same row */}
             {sessionId && messages.length > 2 && (
               <button
                 onClick={handleEndSession}
                 disabled={isStreaming || isEnding}
                 className="
-          flex-shrink-0
-          px-3 sm:px-5 h-10 sm:h-11
-          bg-neutral-800 hover:bg-neutral-700
-          disabled:opacity-50 disabled:cursor-not-allowed
-          rounded-xl text-sm font-medium transition-colors
-          whitespace-nowrap text-white
-        "
+                  flex-shrink-0
+                  px-3 sm:px-5 h-10 sm:h-11
+                  bg-neutral-800 hover:bg-neutral-700
+                  disabled:opacity-50 disabled:cursor-not-allowed
+                  rounded-xl text-sm font-medium transition-colors
+                  whitespace-nowrap text-white
+                "
                 title="End Session"
               >
                 <span className="sm:hidden">🏁</span>
@@ -303,7 +387,6 @@ export default function ChatWindow() {
             )}
           </div>
         </div>
-
       </div>
 
       {/* Score modal */}
