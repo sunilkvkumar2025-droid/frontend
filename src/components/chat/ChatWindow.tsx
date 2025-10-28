@@ -71,7 +71,7 @@
   );
 
   type Phase = "idle" | "userRecording" | "llm" | "tts";
-
+  
   export default function ChatWindow() {
     // --- chat state ---
     const [messages, setMessages] = useState<Message[]>([
@@ -81,6 +81,7 @@
         text: "Hi! I’m Coco. Tell me about your day!",
       },
     ]);
+    
     const [isStreaming, setIsStreaming] = useState(false);
     const [sessionId, setSessionId] = useState<string | null>(null);
 
@@ -352,7 +353,7 @@
           text: "Hi! I’m Coco. Let’s talk!",
         },
       ]);
-      setSessionId(null);
+      setSessionId(sessionId);
       setShowScoreModal(false);
       setScoreData(null);
       setPhase("idle");
