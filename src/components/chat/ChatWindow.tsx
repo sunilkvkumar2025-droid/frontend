@@ -423,7 +423,7 @@
             width={180}
             height={180}
             baseSrc="/avatars/coco/base.png"
-            mouthOpenSrc="/avatars/coco/mouth-open.png"
+            // mouthOpenSrc="/avatars/coco/mouth-open.png"
           />
         </div>
       </div>
