@@ -1,6 +1,3 @@
-// File: components/layout/TopNav.tsx
-// Fixed top navigation bar for the application
-
 "use client";
 
 import { useState } from "react";
@@ -18,55 +15,76 @@ export default function TopNav() {
   };
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-40 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800">
-      <div className="px-4 py-3 flex items-center justify-between">
-        {/* Left: Logo/Avatar */}
-        <div className="flex items-center gap-2">
-          <span className="text-2xl">🎓</span>
-          <span className="font-semibold text-lg">Coco</span>
-        </div>
+    <>
+      <nav
+        className="
+          fixed top-0 left-0 right-0
+          z-40
+          bg-zinc-900/80 backdrop-blur-md
+          border-b border-zinc-800
+          text-white
+        "
+      >
+        <div className="px-4 py-3 flex items-center justify-between">
+          {/* Left: Logo */}
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">🎓</span>
+            <span className="font-semibold text-lg">Coco</span>
+          </div>
 
-        {/* Right: User Menu */}
-        <div className="relative">
+          {/* Right: User Menu */}
           {user && (
-            <>
+            <div className="relative">
               <button
-                onClick={() => setShowMenu(!showMenu)}
+                onClick={() => setShowMenu((v) => !v)}
                 className="text-2xl hover:opacity-70 transition-opacity"
+                aria-label="User menu"
               >
                 ☰
               </button>
 
-              {/* Dropdown Menu */}
               {showMenu && (
-                <div className="absolute right-0 mt-2 w-64 bg-zinc-800 border border-zinc-700 rounded-xl shadow-lg overflow-hidden">
+                <div
+                  className="
+                    absolute right-0 mt-2 w-64
+                    rounded-xl overflow-hidden shadow-lg
+                    bg-zinc-800 border border-zinc-700
+                    z-50                     /* ★ CHANGED ensure above overlay */
+                  "
+                  onClick={(e) => e.stopPropagation()} /* ★ CHANGED prevent bubbling */
+                >
                   {/* User Info */}
                   <div className="px-4 py-3 border-b border-zinc-700">
-                    <div className="text-sm text-neutral-400">Signed in as</div>
-                    <div className="text-white font-medium truncate">{user.email}</div>
+                    <div className="text-xs text-neutral-400">Signed in as</div>
+                    <div className="text-white font-medium truncate">
+                      {user.email}
+                    </div>
                   </div>
 
-                  {/* Sign Out Button */}
+                  {/* Sign Out */}
                   <button
-                    onClick={handleSignOut}
+                    onClick={() => {
+                      setShowMenu(false);    // ★ CHANGED close immediately
+                      handleSignOut();
+                    }}
                     className="w-full text-left px-4 py-3 text-red-400 hover:bg-zinc-700 transition-colors"
                   >
                     Sign Out
                   </button>
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
-      </div>
+      </nav>
 
-      {/* Overlay to close menu when clicking outside */}
+      {/* Overlay (closes menu when clicked outside) */}
       {showMenu && (
         <div
-          className="fixed inset-0 z-30"
-          onClick={() => setShowMenu(false)}
+          className="fixed inset-0 z-30 bg-transparent"  // ★ CHANGED sits below menu
+          onClick={() => setShowMenu(false)}             // ★ CHANGED click outside closes
         />
       )}
-    </nav>
+    </>
   );
 }
