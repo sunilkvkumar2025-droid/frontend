@@ -11,7 +11,7 @@ export function AvatarPhoto({
   width = 280,
   height = 280,
   baseSrc = "/avatars/coco/base.png",
-  mouthOpenSrc = "/avatars/coco/mouth-open.png",
+  mouthOpenSrc = "", //"/avatars/coco/mouth-open.png",
   mouthMidSrc,
   fade = true,
 }: {
