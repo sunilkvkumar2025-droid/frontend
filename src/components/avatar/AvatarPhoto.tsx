@@ -14,6 +14,8 @@ export function AvatarPhoto({
   mouthOpenSrc = "", //"/avatars/coco/mouth-open.png",
   mouthMidSrc,
   fade = true,
+  square = false,
+  cornerRadius = 0,
 }: {
   phase: Phase;
   level: number;
@@ -23,6 +25,8 @@ export function AvatarPhoto({
   mouthOpenSrc?: string;
   mouthMidSrc?: string;
   fade?: boolean;
+  square?: boolean;
+  cornerRadius?: number;
 }) {
   const [ready, setReady] = useState(false);
 
@@ -61,7 +65,15 @@ export function AvatarPhoto({
   const midOpacity  = mouthMidSrc ? Math.min(1, Math.max(0, (openAmt - 0.12) / 0.4)) : 0;
 
   return (
-    <div style={{ width, height, position: "relative", borderRadius: 16, overflow: "hidden" }}>
+    <div
+      style={{
+        width,
+        height,
+        position: "relative",
+        borderRadius: square ? cornerRadius : "50%",
+        overflow: "hidden",
+      }}
+    >
       {/* Base */}
       <NextImage src={baseSrc} alt="Tutor" fill sizes={`${width}px`} style={{ objectFit: "cover" }} />
 

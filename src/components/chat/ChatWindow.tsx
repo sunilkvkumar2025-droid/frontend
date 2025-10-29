@@ -409,10 +409,10 @@
 
     <div className="relative flex flex-col items-center gap-8 pb-12 pt-16">
       <div className="relative flex items-center justify-center">
-        <div className="absolute -inset-12 rounded-full bg-[radial-gradient(circle,_rgba(103,139,182,0.24)_0%,transparent_65%)] blur-[90px] opacity-70" />
+        <div className="absolute -inset-12 rounded-[32px] bg-[radial-gradient(circle,_rgba(103,139,182,0.24)_0%,transparent_65%)] blur-[90px] opacity-70" />
         <div
           className="
-            relative h-[180px] w-[180px] overflow-hidden rounded-full
+            relative h-[180px] w-[180px] overflow-hidden rounded-2xl
             bg-[radial-gradient(circle_at_32%_28%,rgba(124,155,193,0.2),rgba(45,63,87,0.7),rgba(9,14,21,1))]
             shadow-[0_32px_60px_-36px_rgba(7,10,16,0.92)]
           "
@@ -423,8 +423,10 @@
             width={180}
             height={180}
             baseSrc="/avatars/coco/base.png"
-            // mouthOpenSrc="/avatars/coco/mouth-open.png"
-          />
+          square
+          cornerRadius={16}
+          // mouthOpenSrc="/avatars/coco/mouth-open.png"
+        />
         </div>
       </div>
 </div>
