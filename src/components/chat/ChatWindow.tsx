@@ -190,7 +190,7 @@
     // --- INTERRUPT AI (barge in)
     const handleBargeIn = () => {
       abort();
-      clear();
+      clear(650);
       setIsStreaming(false);
       setPhase("idle");
     };
@@ -485,6 +485,7 @@
             onSend={handleSend}
             onStop={() => {
               abort();
+              clear(650);
               setIsStreaming(false);
               setPhase("idle");
             }}

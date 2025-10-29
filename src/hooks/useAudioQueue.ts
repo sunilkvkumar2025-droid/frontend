@@ -1,6 +1,6 @@
 // hooks/useAudioQueue.ts
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // ---- module-level singletons (survive React Strict Mode re-mounts) ----
 let sharedEl: HTMLAudioElement | null = null;
@@ -14,23 +14,63 @@ export function resumeAudio() {
 }
 
 export function useAudioQueue() {
+  const WRAP_DELAY_MS = 650;
   const [queue, setQueue] = useState<string[]>([]);
   const [level, setLevel] = useState(0);
 
   // Expose the shared element via ref if other code needs it
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const enqueue = (url: string) => {
-    console.log("[AudioQueue] Enqueueing audio:", url);
-    setQueue((q) => [...q, url]);
-  };
-
-  const clear = () => {
-    setQueue([]);
-    if (sharedEl) {
-      try { sharedEl.pause(); sharedEl.currentTime = 0; sharedEl.src = ""; } catch {}
+  const cancelScheduledStop = useCallback(() => {
+    if (stopTimerRef.current !== null) {
+      clearTimeout(stopTimerRef.current);
+      stopTimerRef.current = null;
     }
-  };
+  }, []);
+
+  const enqueue = useCallback(
+    (url: string) => {
+      cancelScheduledStop();
+      if (completionTimerRef.current) {
+        clearTimeout(completionTimerRef.current);
+        completionTimerRef.current = null;
+      }
+      console.log("[AudioQueue] Enqueueing audio:", url);
+      setQueue((q) => [...q, url]);
+    },
+    [cancelScheduledStop]
+  );
+
+  const clear = useCallback(
+    (delayMs = 0) => {
+      const stop = () => {
+        stopTimerRef.current = null;
+        if (completionTimerRef.current) {
+          clearTimeout(completionTimerRef.current);
+          completionTimerRef.current = null;
+        }
+        setQueue([]);
+        if (sharedEl) {
+          try {
+            sharedEl.pause();
+            sharedEl.currentTime = 0;
+            sharedEl.src = "";
+          } catch {}
+        }
+      };
+
+      cancelScheduledStop();
+
+      if (delayMs > 0) {
+        stopTimerRef.current = setTimeout(stop, delayMs);
+      } else {
+        stop();
+      }
+    },
+    [cancelScheduledStop]
+  );
 
   // Create (or reuse) the audio element + WebAudio graph exactly once per page
   useEffect(() => {
@@ -83,6 +123,16 @@ export function useAudioQueue() {
     return () => { mounted = false; cancelAnimationFrame(raf); };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      cancelScheduledStop();
+      if (completionTimerRef.current) {
+        clearTimeout(completionTimerRef.current);
+        completionTimerRef.current = null;
+      }
+    };
+  }, [cancelScheduledStop]);
+
   // Playback logic (unchanged) but use sharedEl
   useEffect(() => {
     if (!sharedEl) sharedEl = new Audio();
@@ -109,8 +159,14 @@ export function useAudioQueue() {
       }
     };
     const onEnded = () => {
-      console.log("🎵 Audio track ended, moving to next in queue");
-      setQueue(rest);
+      console.log("🎵 Audio track ended, scheduling wrap-up");
+      if (completionTimerRef.current) {
+        clearTimeout(completionTimerRef.current);
+      }
+      completionTimerRef.current = setTimeout(() => {
+        completionTimerRef.current = null;
+        setQueue(rest);
+      }, WRAP_DELAY_MS);
     };
     const onError = (e: Event) => {
       console.error("❌ Audio error:", e);
