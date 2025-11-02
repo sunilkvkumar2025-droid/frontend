@@ -70,7 +70,9 @@
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
   );
 
-  type Phase = "idle" | "userRecording" | "llm" | "tts";
+type Phase = "idle" | "userRecording" | "llm" | "tts";
+
+const DEFAULT_TTS_STRATEGY = (process.env.NEXT_PUBLIC_TTS_STRATEGY ?? "legacy").toLowerCase();
   
   export default function ChatWindow() {
     // --- chat state ---
@@ -261,7 +263,13 @@
 
       try {
         await send(
-          { sessionId, text: userMsg.text, wantAudio, getAccessToken },
+          {
+            sessionId,
+            text: userMsg.text,
+            wantAudio,
+            getAccessToken,
+            ttsStrategy: userMsg.wantAudio ? DEFAULT_TTS_STRATEGY : undefined,
+          },
           (evt) => {
             if (evt.type === "token") {
               // stream assistant text tokens into the assistant stub
