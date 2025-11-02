@@ -1,4 +1,3 @@
-  // src/hooks/useSSEChat.ts
   "use client";
 
   import { useRef } from "react";
@@ -12,7 +11,7 @@
     | { type: "audio_done"; seq?: number; context?: string }
     | { type: "audio_error"; message: string; context?: string }
     | { type: "speak_ready"; text: string; context?: string }
-    | { type: "done"; messageId?: string }
+    | { type: "done"; messageId?: string; fullText?: string }
     | { type: "debug"; event: string; payload: unknown };
 
   export type SendChatArgs = {
@@ -37,12 +36,11 @@
 
     const send = async (
       { sessionId, text, wantAudio, userMessage, getAccessToken, ttsStrategy }: SendChatArgs,
-      onEvent: (e: ChatEvent) => void
+      onEvent: (event: ChatEvent) => void
     ) => {
       const token = await getAccessToken();
       if (!token) throw new Error("Not authenticated");
 
-      // Ensure only one active stream
       abortRef.current?.abort();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
@@ -83,27 +81,30 @@
             seq?: number;
             context?: string;
             messageId?: string;
+            fullText?: string;
             message?: string;
           }>(data) ?? { text: data, url: data };
 
         switch (ev) {
           case "token": {
-            const textEvent =
+            const textPayload =
               typeof parsed.text === "string" ? parsed.text : String(data ?? "");
-            onEvent({ type: "token", text: textEvent });
+            onEvent({ type: "token", text: textPayload });
             break;
           }
+
           case "audio": {
-            const urlEvent =
+            const urlPayload =
               typeof parsed.url === "string" ? parsed.url : String(data ?? "");
             onEvent({
               type: "audio",
-              url: urlEvent,
+              url: urlPayload,
               seq: typeof parsed.seq === "number" ? parsed.seq : undefined,
               context: parsed.context,
             });
             break;
           }
+
           case "audio_chunk": {
             if (typeof parsed.chunk === "string" && typeof parsed.seq === "number") {
               onEvent({
@@ -115,6 +116,7 @@
             }
             break;
           }
+
           case "audio_done": {
             onEvent({
               type: "audio_done",
@@ -123,16 +125,22 @@
             });
             break;
           }
+
           case "audio_error": {
-            const message =
+            const messagePayload =
               typeof parsed.message === "string"
                 ? parsed.message
                 : typeof data === "string"
                 ? data
                 : "Unknown audio error";
-            onEvent({ type: "audio_error", message, context: parsed.context });
+            onEvent({
+              type: "audio_error",
+              message: messagePayload,
+              context: parsed.context,
+            });
             break;
           }
+
           case "speak_ready": {
             if (typeof parsed.text === "string") {
               onEvent({
@@ -143,15 +151,19 @@
             }
             break;
           }
+
           case "done": {
             gotDone = true;
             onEvent({
               type: "done",
               messageId:
                 typeof parsed.messageId === "string" ? parsed.messageId : undefined,
+              fullText:
+                typeof parsed.fullText === "string" ? parsed.fullText : undefined,
             });
             break;
           }
+
           default: {
             onEvent({ type: "debug", event: ev, payload: parsed });
             break;
@@ -166,7 +178,9 @@
       }
     };
 
-    const abort = () => abortRef.current?.abort();
+    const abort = () => {
+      abortRef.current?.abort();
+    };
 
     return { send, abort };
   }
