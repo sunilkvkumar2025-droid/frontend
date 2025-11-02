@@ -261,7 +261,13 @@
 
       try {
         await send(
-          { sessionId, text: userMsg.text, wantAudio, getAccessToken },
+          {
+            sessionId,
+            text: userMsg.text,
+            wantAudio,
+            getAccessToken,
+            ttsStrategy: userMsg.wantAudio ? "realtime" : "legacy",
+          },
           (evt) => {
             if (evt.type === "token") {
               // stream assistant text tokens into the assistant stub
@@ -272,14 +278,25 @@
                     : msg
                 )
               );
+            } else if (evt.type === "speak_ready") {
+              // Realtime clients can hook into this event to trigger low-latency playback.
+              // Placeholder for future integration with useVoiceOutput.
+              setPhase("tts");
             } else if (evt.type === "audio") {
               // enqueue TTS audio if user wants audio
               if (userMsg.wantAudio) {
                 enqueue(evt.url);
                 setPhase("tts");
               }
+            } else if (evt.type === "audio_correction") {
+              if (userMsg.wantAudio) {
+                enqueue(evt.url);
+                setPhase("tts");
+              }
             } else if (evt.type === "audio_error") {
               console.error("[ChatWindow] Audio error:", evt.message);
+            } else if (evt.type === "audio_correction_error") {
+              console.error("[ChatWindow] Audio correction error:", evt.message);
             } else if (evt.type === "done") {
               // streaming finished
               setIsStreaming(false);
