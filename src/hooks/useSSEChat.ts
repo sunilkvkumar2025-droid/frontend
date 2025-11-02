@@ -1,4 +1,4 @@
-  "use client";
+"use client";
 
   import { useRef } from "react";
   import { parseSSE } from "../lib/sse";
@@ -23,9 +23,9 @@
     ttsStrategy?: string;
   };
 
-  function safeJson<T = unknown>(raw: string): T | null {
+  function safeJson(raw: string) {
     try {
-      return JSON.parse(raw) as T;
+      return JSON.parse(raw) as unknown;
     } catch {
       return null;
     }
@@ -73,45 +73,51 @@
       for await (const { ev, data } of parseSSE(body)) {
         if (ctrl.signal.aborted) break;
 
-        const parsed =
-          safeJson<{
-            text?: string;
-            url?: string;
-            chunk?: string;
-            seq?: number;
-            context?: string;
-            messageId?: string;
-            fullText?: string;
-            message?: string;
-          }>(data) ?? { text: data, url: data };
+        const parsed = safeJson(data);
+        const parsedObj =
+          parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : undefined;
+        const parsedStr = typeof parsed === "string" ? parsed : undefined;
 
         switch (ev) {
           case "token": {
             const textPayload =
-              typeof parsed.text === "string" ? parsed.text : String(data ?? "");
+              parsedStr ??
+              (typeof parsedObj?.text === "string" ? parsedObj.text : undefined) ??
+              (typeof data === "string" ? (() => {
+                try {
+                  return JSON.parse(data);
+                } catch {
+                  return data;
+                }
+              })() : String(data ?? ""));
             onEvent({ type: "token", text: textPayload });
             break;
           }
 
           case "audio": {
             const urlPayload =
-              typeof parsed.url === "string" ? parsed.url : String(data ?? "");
+              (typeof parsedObj?.url === "string" ? parsedObj.url : undefined) ??
+              (typeof parsedStr === "string" ? parsedStr : undefined) ??
+              (typeof data === "string" ? data : String(data ?? ""));
             onEvent({
               type: "audio",
               url: urlPayload,
-              seq: typeof parsed.seq === "number" ? parsed.seq : undefined,
-              context: parsed.context,
+              seq: typeof parsedObj?.seq === "number" ? parsedObj.seq : undefined,
+              context: typeof parsedObj?.context === "string" ? parsedObj.context : undefined,
             });
             break;
           }
 
           case "audio_chunk": {
-            if (typeof parsed.chunk === "string" && typeof parsed.seq === "number") {
+            if (
+              typeof parsedObj?.chunk === "string" &&
+              typeof parsedObj?.seq === "number"
+            ) {
               onEvent({
                 type: "audio_chunk",
-                chunk: parsed.chunk,
-                seq: parsed.seq,
-                context: parsed.context,
+                chunk: parsedObj.chunk,
+                seq: parsedObj.seq,
+                context: typeof parsedObj.context === "string" ? parsedObj.context : undefined,
               });
             }
             break;
@@ -120,33 +126,34 @@
           case "audio_done": {
             onEvent({
               type: "audio_done",
-              seq: typeof parsed.seq === "number" ? parsed.seq : undefined,
-              context: parsed.context,
+              seq: typeof parsedObj?.seq === "number" ? parsedObj.seq : undefined,
+              context: typeof parsedObj?.context === "string" ? parsedObj.context : undefined,
             });
             break;
           }
 
           case "audio_error": {
             const messagePayload =
-              typeof parsed.message === "string"
-                ? parsed.message
-                : typeof data === "string"
-                ? data
-                : "Unknown audio error";
+              (typeof parsedObj?.message === "string" ? parsedObj.message : undefined) ??
+              parsedStr ??
+              (typeof data === "string" ? data : "Unknown audio error");
             onEvent({
               type: "audio_error",
               message: messagePayload,
-              context: parsed.context,
+              context: typeof parsedObj?.context === "string" ? parsedObj.context : undefined,
             });
             break;
           }
 
           case "speak_ready": {
-            if (typeof parsed.text === "string") {
+            const textPayload =
+              parsedStr ??
+              (typeof parsedObj?.text === "string" ? parsedObj.text : undefined);
+            if (textPayload) {
               onEvent({
                 type: "speak_ready",
-                text: parsed.text,
-                context: parsed.context,
+                text: textPayload,
+                context: typeof parsedObj?.context === "string" ? parsedObj.context : undefined,
               });
             }
             break;
@@ -157,15 +164,17 @@
             onEvent({
               type: "done",
               messageId:
-                typeof parsed.messageId === "string" ? parsed.messageId : undefined,
+                typeof parsedObj?.messageId === "string" ? parsedObj.messageId : undefined,
               fullText:
-                typeof parsed.fullText === "string" ? parsed.fullText : undefined,
+                typeof parsedObj?.fullText === "string"
+                  ? parsedObj.fullText
+                  : parsedStr,
             });
             break;
           }
 
           default: {
-            onEvent({ type: "debug", event: ev, payload: parsed });
+            onEvent({ type: "debug", event: ev, payload: parsed ?? data });
             break;
           }
         }
