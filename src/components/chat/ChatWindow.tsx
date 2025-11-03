@@ -74,6 +74,17 @@ type Phase = "idle" | "userRecording" | "llm" | "tts";
 
 const DEFAULT_TTS_STRATEGY = (process.env.NEXT_PUBLIC_TTS_STRATEGY ?? "legacy").toLowerCase();
 const USE_BROWSER_VOICE = DEFAULT_TTS_STRATEGY === "browser";
+const BROWSER_VOICE_PREF_NAMES = [
+  "Google हिन्दी",
+  "Google भारतीय महिला",
+  "Microsoft Heera",
+  "Microsoft Ravi",
+  "Microsoft Neerja",
+  "Microsoft Priya",
+  "Veena",
+  "Rishi",
+];
+const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
   
   export default function ChatWindow() {
     // --- chat state ---
@@ -108,7 +119,60 @@ const USE_BROWSER_VOICE = DEFAULT_TTS_STRATEGY === "browser";
     // track whether we've already done the initial scroll positioning
     const didInitialScrollRef = useRef(false);
     const browserQueueRef = useRef<string[]>([]);
+    const browserVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
+    const browserVoiceReadyRef = useRef(false);
+    const browserVoiceListenerRef = useRef<(() => void) | null>(null);
     const browserSpeakingRef = useRef(false);
+
+    const ensureBrowserVoice = () => {
+      if (!USE_BROWSER_VOICE) return;
+      if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+      if (browserVoiceReadyRef.current && browserVoiceRef.current) return;
+
+      const pickVoice = (voices: SpeechSynthesisVoice[]) => {
+        if (!voices.length) return null;
+
+        for (const name of BROWSER_VOICE_PREF_NAMES) {
+          const match = voices.find((voice) =>
+            voice.name.toLowerCase().includes(name.toLowerCase())
+          );
+          if (match) return match;
+        }
+
+        const localeHit = voices.find((voice) =>
+          voice.lang &&
+          BROWSER_VOICE_PREF_LOCALES.some((locale) =>
+            voice.lang.toLowerCase().startsWith(locale.toLowerCase())
+          )
+        );
+        if (localeHit) return localeHit;
+
+        return voices[0];
+      };
+
+      const assignVoice = () => {
+        const voices = window.speechSynthesis.getVoices();
+        const chosen = pickVoice(voices);
+        if (chosen) {
+          browserVoiceRef.current = chosen;
+          browserVoiceReadyRef.current = true;
+        }
+      };
+
+      assignVoice();
+
+      if (!browserVoiceReadyRef.current) {
+        const handler = () => {
+          assignVoice();
+          if (browserVoiceReadyRef.current) {
+            window.speechSynthesis.removeEventListener("voiceschanged", handler);
+            browserVoiceListenerRef.current = null;
+          }
+        };
+        window.speechSynthesis.addEventListener("voiceschanged", handler);
+        browserVoiceListenerRef.current = handler;
+      }
+    };
 
     const stopBrowserSpeech = () => {
       if (!USE_BROWSER_VOICE) return;
@@ -125,7 +189,18 @@ const USE_BROWSER_VOICE = DEFAULT_TTS_STRATEGY === "browser";
       const next = browserQueueRef.current.shift();
       if (!next || typeof window === "undefined" || !("speechSynthesis" in window)) return;
 
+      ensureBrowserVoice();
+
       const utterance = new SpeechSynthesisUtterance(next);
+      const voice = browserVoiceRef.current;
+      if (voice) {
+        utterance.voice = voice;
+        utterance.lang = voice.lang || "en-IN";
+      } else {
+        utterance.lang = "en-IN";
+      }
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
       browserSpeakingRef.current = true;
       setPhase("tts");
 
@@ -148,14 +223,28 @@ const USE_BROWSER_VOICE = DEFAULT_TTS_STRATEGY === "browser";
 
     const enqueueBrowserSpeech = (text?: string | null) => {
       if (!USE_BROWSER_VOICE || !text?.trim()) return;
+      ensureBrowserVoice();
       browserQueueRef.current.push(text.trim());
       playBrowserQueue();
     };
 
     useEffect(() => {
       return () => {
+        if (USE_BROWSER_VOICE && typeof window !== "undefined" && "speechSynthesis" in window) {
+          const handler = browserVoiceListenerRef.current;
+          if (handler) {
+            window.speechSynthesis.removeEventListener("voiceschanged", handler);
+            browserVoiceListenerRef.current = null;
+          }
+        }
         stopBrowserSpeech();
       };
+    }, []);
+
+    useEffect(() => {
+      if (USE_BROWSER_VOICE) {
+        ensureBrowserVoice();
+      }
     }, []);
 
     // --- measure footer height so we can pad scrollable area correctly
