@@ -320,7 +320,7 @@ const USE_BROWSER_VOICE = DEFAULT_TTS_STRATEGY === "browser";
       setIsStreaming(true);
       setPhase("llm");
 
-      const backendWantAudio = !USE_BROWSER_VOICE && userMsg.wantAudio;
+      const backendWantAudio = Boolean(!USE_BROWSER_VOICE && userMsg.wantAudio);
       const backendTtsStrategy =
         backendWantAudio ? DEFAULT_TTS_STRATEGY : undefined;
 
