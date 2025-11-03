@@ -73,6 +73,7 @@
 type Phase = "idle" | "userRecording" | "llm" | "tts";
 
 const DEFAULT_TTS_STRATEGY = (process.env.NEXT_PUBLIC_TTS_STRATEGY ?? "legacy").toLowerCase();
+const USE_BROWSER_VOICE = DEFAULT_TTS_STRATEGY === "browser";
   
   export default function ChatWindow() {
     // --- chat state ---
@@ -106,6 +107,56 @@ const DEFAULT_TTS_STRATEGY = (process.env.NEXT_PUBLIC_TTS_STRATEGY ?? "legacy").
 
     // track whether we've already done the initial scroll positioning
     const didInitialScrollRef = useRef(false);
+    const browserQueueRef = useRef<string[]>([]);
+    const browserSpeakingRef = useRef(false);
+
+    const stopBrowserSpeech = () => {
+      if (!USE_BROWSER_VOICE) return;
+      if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+      window.speechSynthesis.cancel();
+      browserQueueRef.current = [];
+      browserSpeakingRef.current = false;
+      setPhase("idle");
+    };
+
+    const playBrowserQueue = () => {
+      if (!USE_BROWSER_VOICE) return;
+      if (browserSpeakingRef.current) return;
+      const next = browserQueueRef.current.shift();
+      if (!next || typeof window === "undefined" || !("speechSynthesis" in window)) return;
+
+      const utterance = new SpeechSynthesisUtterance(next);
+      browserSpeakingRef.current = true;
+      setPhase("tts");
+
+      utterance.onend = () => {
+        browserSpeakingRef.current = false;
+        if (browserQueueRef.current.length === 0) {
+          setPhase("idle");
+        } else {
+          playBrowserQueue();
+        }
+      };
+
+      utterance.onerror = () => {
+        browserSpeakingRef.current = false;
+        playBrowserQueue();
+      };
+
+      window.speechSynthesis.speak(utterance);
+    };
+
+    const enqueueBrowserSpeech = (text?: string | null) => {
+      if (!USE_BROWSER_VOICE || !text?.trim()) return;
+      browserQueueRef.current.push(text.trim());
+      playBrowserQueue();
+    };
+
+    useEffect(() => {
+      return () => {
+        stopBrowserSpeech();
+      };
+    }, []);
 
     // --- measure footer height so we can pad scrollable area correctly
     useLayoutEffect(() => {
@@ -191,8 +242,12 @@ const DEFAULT_TTS_STRATEGY = (process.env.NEXT_PUBLIC_TTS_STRATEGY ?? "legacy").
 
     // --- INTERRUPT AI (barge in)
     const handleBargeIn = () => {
-      abort();
-      clear(650);
+      if (USE_BROWSER_VOICE) {
+        stopBrowserSpeech();
+      } else {
+        abort();
+        clear();
+      }
       setIsStreaming(false);
       setPhase("idle");
     };
@@ -209,8 +264,12 @@ const DEFAULT_TTS_STRATEGY = (process.env.NEXT_PUBLIC_TTS_STRATEGY ?? "legacy").
         return;
       }
 
+    if (!USE_BROWSER_VOICE) {
       resumeAudio();
       clear();
+    } else {
+      stopBrowserSpeech();
+    }
 
       const userMsg: Message = {
         id: `u-${Date.now()}`,
@@ -261,14 +320,18 @@ const DEFAULT_TTS_STRATEGY = (process.env.NEXT_PUBLIC_TTS_STRATEGY ?? "legacy").
       setIsStreaming(true);
       setPhase("llm");
 
+      const backendWantAudio = !USE_BROWSER_VOICE && userMsg.wantAudio;
+      const backendTtsStrategy =
+        backendWantAudio ? DEFAULT_TTS_STRATEGY : undefined;
+
       try {
         await send(
           {
             sessionId,
             text: userMsg.text,
-            wantAudio,
+            wantAudio: backendWantAudio,
             getAccessToken,
-            ttsStrategy: userMsg.wantAudio ? DEFAULT_TTS_STRATEGY : undefined,
+            ttsStrategy: backendTtsStrategy,
           },
           (evt) => {
             if (evt.type === "token") {
@@ -280,8 +343,7 @@ const DEFAULT_TTS_STRATEGY = (process.env.NEXT_PUBLIC_TTS_STRATEGY ?? "legacy").
                     : msg
                 )
               );
-            } else if (evt.type === "audio") {
-              // enqueue TTS audio if user wants audio
+            } else if (evt.type === "audio" && !USE_BROWSER_VOICE) {
               if (userMsg.wantAudio) {
                 enqueue(evt.url);
                 setPhase("tts");
@@ -291,7 +353,7 @@ const DEFAULT_TTS_STRATEGY = (process.env.NEXT_PUBLIC_TTS_STRATEGY ?? "legacy").
             } else if (evt.type === "done") {
               // streaming finished
               setIsStreaming(false);
-              if (!userMsg.wantAudio) setPhase("idle");
+              if (!userMsg.wantAudio || USE_BROWSER_VOICE) setPhase("idle");
 
               // parse the final structured feedback blob (correction/appreciation/etc)
               setMessages((prev) => {
@@ -309,6 +371,12 @@ const DEFAULT_TTS_STRATEGY = (process.env.NEXT_PUBLIC_TTS_STRATEGY ?? "legacy").
                     lastMsg.appreciation = parsed.appreciation || null;
                     lastMsg.contribution = parsed.contribution || null;
                     lastMsg.question = parsed.question || null;
+                    if (USE_BROWSER_VOICE && userMsg.wantAudio) {
+                      enqueueBrowserSpeech(parsed.speak_text);
+                      if (parsed.correction) {
+                        enqueueBrowserSpeech(parsed.correction);
+                      }
+                    }
                   } catch (e) {
                     console.warn(
                       "Could not parse fullText as JSON:",
@@ -492,8 +560,12 @@ const DEFAULT_TTS_STRATEGY = (process.env.NEXT_PUBLIC_TTS_STRATEGY ?? "legacy").
           <ChatInput
             onSend={handleSend}
             onStop={() => {
-              abort();
-              clear(650);
+              if (USE_BROWSER_VOICE) {
+                stopBrowserSpeech();
+              } else {
+                abort();
+                clear();
+              }
               setIsStreaming(false);
               setPhase("idle");
             }}
