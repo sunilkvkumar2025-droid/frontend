@@ -437,10 +437,6 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
                 setPhase("tts");
                 enqueue(evt.url);
               }
-            } else if (evt.type === "audio_correction" && !USE_BROWSER_VOICE) {
-              if (userMsg.wantAudio && evt.url) {
-                enqueue(evt.url);
-              }
             } else if (evt.type === "audio_error") {
               console.error("[ChatWindow] Audio error:", evt.message);
             } else if (evt.type === "done") {
