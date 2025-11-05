@@ -75,7 +75,10 @@ export function useAudioQueue() {
   // Create (or reuse) the audio element + WebAudio graph exactly once per page
   useEffect(() => {
     // 1) Single <audio> element
-    if (!sharedEl) sharedEl = new Audio();
+    if (!sharedEl) {
+      sharedEl = new Audio();
+    }
+    sharedEl.crossOrigin = "anonymous";
     audioRef.current = sharedEl;
 
     // 2) Single AudioContext & nodes
@@ -135,7 +138,10 @@ export function useAudioQueue() {
 
   // Playback logic (unchanged) but use sharedEl
   useEffect(() => {
-    if (!sharedEl) sharedEl = new Audio();
+    if (!sharedEl) {
+      sharedEl = new Audio();
+    }
+    sharedEl.crossOrigin = "anonymous";
     const audio = sharedEl;
 
     if (!queue.length) return;
