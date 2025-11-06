@@ -8,6 +8,39 @@ let sharedCtx: AudioContext | null = null;
 let sharedSrc: MediaElementAudioSourceNode | null = null;
 let sharedAnalyser: AnalyserNode | null = null;
 let sharedZero: GainNode | null = null;
+let sharedStreamGain: GainNode | null = null;
+
+type StreamState = {
+  key: string;
+  expectedSeq: number;
+  pending: Map<number, ArrayBuffer>;
+  decoding: boolean;
+  nextStartTime: number;
+  sources: Set<AudioBufferSourceNode>;
+  done: boolean;
+  started: boolean;
+};
+
+const STREAM_PADDING_SECONDS = 0.08;
+
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  if (typeof window === "undefined") {
+    throw new Error("base64 decode not available server-side");
+  }
+  const normalized = base64.replace(/\s/g, "");
+  const binary = atob(normalized);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+function getStreamKey(context?: string | null) {
+  const trimmed = context?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : "main";
+}
 
 export function resumeAudio() {
   try { sharedCtx?.resume?.(); } catch {}
@@ -22,6 +55,180 @@ export function useAudioQueue() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamStatesRef = useRef<Map<string, StreamState>>(new Map());
+  const streamingDisabledRef = useRef(false);
+
+  const stopAllStreams = useCallback(() => {
+    const states = Array.from(streamStatesRef.current.values());
+    for (const state of states) {
+      state.done = true;
+      const sources = Array.from(state.sources);
+      for (const node of sources) {
+        try {
+          node.onended = null;
+          node.stop();
+        } catch {}
+      }
+    }
+    streamStatesRef.current.clear();
+  }, []);
+
+  const abortStream = useCallback((context?: string | null) => {
+    const key = getStreamKey(context);
+    const state = streamStatesRef.current.get(key);
+    if (!state) return;
+    state.done = true;
+    streamStatesRef.current.delete(key);
+    const sources = Array.from(state.sources);
+    for (const node of sources) {
+      try {
+        node.onended = null;
+        node.stop();
+      } catch {}
+    }
+  }, []);
+
+  const scheduleStreamBuffer = useCallback((state: StreamState, buffer: AudioBuffer) => {
+      if (!sharedCtx || !sharedStreamGain) return;
+      const source = sharedCtx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(sharedStreamGain);
+
+    const now = sharedCtx.currentTime;
+    const earliest = now + STREAM_PADDING_SECONDS;
+    const startAt = Math.max(state.nextStartTime, earliest);
+
+    try {
+      source.start(startAt);
+    } catch (err) {
+      console.error("[AudioQueue] Failed to start stream chunk", err);
+      return;
+    }
+
+    state.nextStartTime = startAt + buffer.duration;
+    state.sources.add(source);
+    if (!state.started) state.started = true;
+
+      source.onended = () => {
+        state.sources.delete(source);
+        if (state.done && state.sources.size === 0) {
+          streamStatesRef.current.delete(state.key);
+        }
+      };
+  }, []);
+
+  const decodeAudioChunk = useCallback((data: ArrayBuffer): Promise<AudioBuffer> => {
+      if (!sharedCtx) {
+        return Promise.reject(new Error("AudioContext unavailable"));
+      }
+      const copy = data.slice(0);
+      const fn = sharedCtx.decodeAudioData as unknown;
+      if (typeof fn === "function" && (sharedCtx.decodeAudioData as unknown as { length: number }).length === 1) {
+        return sharedCtx.decodeAudioData(copy);
+      }
+      return new Promise<AudioBuffer>((resolve, reject) => {
+        sharedCtx!.decodeAudioData(copy, resolve, reject);
+      });
+  }, []);
+
+  const processStreamState = useCallback(
+    (state: StreamState) => {
+      if (!sharedCtx || !sharedStreamGain) return;
+      if (state.decoding || state.done) return;
+
+      const next = state.pending.get(state.expectedSeq);
+      if (!next) return;
+
+      state.decoding = true;
+      state.pending.delete(state.expectedSeq);
+
+      decodeAudioChunk(next)
+        .then((buffer) => {
+          if (!sharedCtx || !sharedStreamGain) return;
+          scheduleStreamBuffer(state, buffer);
+          state.expectedSeq += 1;
+        })
+        .catch((err) => {
+          console.error("[AudioQueue] Failed to decode audio chunk", err);
+          streamingDisabledRef.current = true;
+          stopAllStreams();
+        })
+        .finally(() => {
+          state.decoding = false;
+          if (streamStatesRef.current.has(state.key)) {
+            processStreamState(state);
+          }
+        });
+    },
+    [stopAllStreams, decodeAudioChunk, scheduleStreamBuffer]
+  );
+
+  const enqueueStreamChunk = useCallback(
+    (chunk: string, seq: number, context?: string | null) => {
+      if (!sharedCtx || !sharedStreamGain) return null;
+      if (typeof window === "undefined" || streamingDisabledRef.current) return null;
+
+      const key = getStreamKey(context);
+      let state = streamStatesRef.current.get(key);
+      if (!state) {
+        state = {
+          key,
+          expectedSeq: 0,
+          pending: new Map(),
+          decoding: false,
+          nextStartTime: sharedCtx.currentTime + STREAM_PADDING_SECONDS,
+          sources: new Set(),
+          done: false,
+          started: false,
+        };
+        streamStatesRef.current.set(key, state);
+      }
+
+      if (state.done || seq < state.expectedSeq || state.pending.has(seq)) {
+        return { key } as const;
+      }
+
+      try {
+        const buffer = base64ToArrayBuffer(chunk);
+        state.pending.set(seq, buffer);
+        processStreamState(state);
+        return { key } as const;
+      } catch (err) {
+        console.error("[AudioQueue] Failed to enqueue audio chunk", err);
+        streamingDisabledRef.current = true;
+        abortStream(context);
+        return null;
+      }
+    },
+    [processStreamState, abortStream]
+  );
+
+  const completeStream = useCallback(
+    (context?: string | null) => {
+      const key = getStreamKey(context);
+      const state = streamStatesRef.current.get(key);
+      if (!state) {
+        return { key, remainingMs: 0, active: false } as const;
+      }
+
+      state.done = true;
+      state.pending.clear();
+
+      if (!sharedCtx) {
+        streamStatesRef.current.delete(key);
+        return { key, remainingMs: 0, active: false } as const;
+      }
+
+      if (state.sources.size === 0 && !state.decoding) {
+        streamStatesRef.current.delete(key);
+        return { key, remainingMs: 0, active: false } as const;
+      }
+
+      const remaining = Math.max(0, (state.nextStartTime - sharedCtx.currentTime) * 1000);
+      return { key, remainingMs: remaining, active: true } as const;
+    },
+    []
+  );
 
   const cancelScheduledStop = useCallback(() => {
     if (stopTimerRef.current !== null) {
@@ -51,6 +258,7 @@ export function useAudioQueue() {
           clearTimeout(completionTimerRef.current);
           completionTimerRef.current = null;
         }
+        stopAllStreams();
         setQueue([]);
         if (sharedEl) {
           try {
@@ -69,7 +277,7 @@ export function useAudioQueue() {
         stop();
       }
     },
-    [cancelScheduledStop]
+    [cancelScheduledStop, stopAllStreams]
   );
 
   // Create (or reuse) the audio element + WebAudio graph exactly once per page
@@ -77,6 +285,8 @@ export function useAudioQueue() {
     // 1) Single <audio> element
     if (!sharedEl) {
       sharedEl = new Audio();
+      sharedEl.setAttribute("playsinline", "true");
+      sharedEl.preload = "auto";
     }
     sharedEl.crossOrigin = "anonymous";
     audioRef.current = sharedEl;
@@ -106,6 +316,12 @@ export function useAudioQueue() {
       sharedZero.connect(sharedCtx.destination);
     }
 
+    if (!sharedStreamGain) {
+      sharedStreamGain = sharedCtx.createGain();
+      sharedStreamGain.gain.value = 1;
+      sharedStreamGain.connect(sharedAnalyser);
+    }
+
     let raf = 0, mounted = true;
     const data = new Uint8Array(sharedAnalyser.fftSize);
     let env = 0;
@@ -133,8 +349,9 @@ export function useAudioQueue() {
         clearTimeout(completionTimerRef.current);
         completionTimerRef.current = null;
       }
+      stopAllStreams();
     };
-  }, [cancelScheduledStop]);
+  }, [cancelScheduledStop, stopAllStreams]);
 
   // Playback logic (unchanged) but use sharedEl
   useEffect(() => {
@@ -190,5 +407,13 @@ export function useAudioQueue() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queue.join("|")]);
 
-  return { enqueue, clear, level, audioRef } as const;
+  return {
+    enqueue,
+    clear,
+    level,
+    audioRef,
+    enqueueStreamChunk,
+    completeStream,
+    cancelStream: abortStream,
+  } as const;
 }

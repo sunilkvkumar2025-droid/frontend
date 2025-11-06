@@ -6,6 +6,7 @@
     useRef,
     useState,
     useLayoutEffect,
+    useCallback,
   } from "react";
   import MessageList from "./MessageList";
   import ChatInput from "./ChatInput";
@@ -65,6 +66,12 @@
     actionable_feedback?: string[];
   };
 
+  type AssistantStreamState = {
+    shouldBuffer: boolean;
+    buffer: string;
+    flushed: boolean;
+  };
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL || "",
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
@@ -97,6 +104,7 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
     ]);
     
     const [isStreaming, setIsStreaming] = useState(false);
+    const isStreamingRef = useRef(isStreaming);
     const [sessionId, setSessionId] = useState<string | null>(null);
 
     // score modal
@@ -104,7 +112,15 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
     const [scoreData, setScoreData] = useState<ScoreData | null>(null);
 
     // audio / phases
-    const { enqueue, clear, level: ttsLevel, audioRef } = useAudioQueue();
+    const {
+      enqueue,
+      clear,
+      level: ttsLevel,
+      audioRef,
+      enqueueStreamChunk,
+      completeStream,
+      cancelStream,
+    } = useAudioQueue();
     const { send, abort } = useSSEChat();
     const { endSession, isEnding } = useEndSession();
     const [phase, setPhase] = useState<Phase>("idle");
@@ -123,6 +139,64 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
     const browserVoiceReadyRef = useRef(false);
     const browserVoiceListenerRef = useRef<(() => void) | null>(null);
     const browserSpeakingRef = useRef(false);
+    const streamingContextsRef = useRef<Set<string>>(new Set());
+    const streamCleanupTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+    const assistantStreamsRef = useRef<Map<string, AssistantStreamState>>(new Map());
+
+    const flushAssistantText = useCallback(
+      (assistantId: string) => {
+        const state = assistantStreamsRef.current.get(assistantId);
+        if (!state || state.flushed) return;
+        state.flushed = true;
+        const nextText = state.buffer;
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantId
+              ? { ...msg, text: nextText }
+              : msg
+          )
+        );
+      },
+      [setMessages]
+    );
+
+    const bufferAssistantToken = useCallback((assistantId: string, token: string) => {
+      const state = assistantStreamsRef.current.get(assistantId);
+      if (!state) return false;
+      state.buffer += token;
+      if (!state.shouldBuffer || state.flushed) {
+        return false;
+      }
+      return true;
+    }, []);
+
+    const clearAssistantStreamState = useCallback((assistantId: string) => {
+      const state = assistantStreamsRef.current.get(assistantId);
+      if (!state) return;
+      if (!state.flushed) {
+        flushAssistantText(assistantId);
+      }
+      assistantStreamsRef.current.delete(assistantId);
+    }, [flushAssistantText]);
+
+    const streamKeyFromContext = (context?: string | null) => {
+      const trimmed = context?.trim();
+      return trimmed && trimmed.length > 0 ? trimmed : "main";
+    };
+
+    const resetStreamingState = useCallback(() => {
+      streamCleanupTimersRef.current.forEach((timer) => clearTimeout(timer));
+      streamCleanupTimersRef.current.clear();
+      streamingContextsRef.current.clear();
+      assistantStreamsRef.current.forEach((_, key) => {
+        flushAssistantText(key);
+      });
+      assistantStreamsRef.current.clear();
+    }, [flushAssistantText]);
+
+    useEffect(() => {
+      isStreamingRef.current = isStreaming;
+    }, [isStreaming]);
 
     const ensureBrowserVoice = () => {
       if (!USE_BROWSER_VOICE) return;
@@ -174,14 +248,14 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
       }
     };
 
-    const stopBrowserSpeech = () => {
+    const stopBrowserSpeech = useCallback(() => {
       if (!USE_BROWSER_VOICE) return;
       if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
       window.speechSynthesis.cancel();
       browserQueueRef.current = [];
       browserSpeakingRef.current = false;
       setPhase("idle");
-    };
+    }, [setPhase]);
 
     const playBrowserQueue = () => {
       if (!USE_BROWSER_VOICE) return;
@@ -238,8 +312,12 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
           }
         }
         stopBrowserSpeech();
+        resetStreamingState();
+        if (!USE_BROWSER_VOICE) {
+          cancelStream();
+        }
       };
-    }, []);
+    }, [cancelStream, resetStreamingState, stopBrowserSpeech]);
 
     useEffect(() => {
       if (USE_BROWSER_VOICE) {
@@ -336,6 +414,7 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
       } else {
         abort();
         clear();
+        resetStreamingState();
       }
       setIsStreaming(false);
       setPhase("idle");
@@ -356,6 +435,7 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
     if (!USE_BROWSER_VOICE) {
       resumeAudio();
       clear();
+      resetStreamingState();
     } else {
       stopBrowserSpeech();
     }
@@ -412,6 +492,13 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
       const backendWantAudio = Boolean(!USE_BROWSER_VOICE && userMsg.wantAudio);
       const backendTtsStrategy =
         backendWantAudio ? DEFAULT_TTS_STRATEGY : undefined;
+      const bufferAssistantResponse = backendWantAudio && !USE_BROWSER_VOICE;
+
+      assistantStreamsRef.current.set(assistantId, {
+        shouldBuffer: bufferAssistantResponse,
+        buffer: "",
+        flushed: !bufferAssistantResponse,
+      });
 
       try {
         await send(
@@ -424,22 +511,86 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
           },
           (evt) => {
             if (evt.type === "token") {
-              // stream assistant text tokens into the assistant stub
-              setMessages((m) =>
-                m.map((msg) =>
-                  msg.id === assistantId
-                    ? { ...msg, text: msg.text + evt.text }
-                    : msg
-                )
-              );
+              const wasBuffered = bufferAssistantToken(assistantId, evt.text);
+              if (!wasBuffered) {
+                // stream assistant text tokens into the assistant stub
+                setMessages((m) =>
+                  m.map((msg) =>
+                    msg.id === assistantId
+                      ? { ...msg, text: msg.text + evt.text }
+                      : msg
+                  )
+                );
+              }
+            } else if (evt.type === "audio_chunk" && !USE_BROWSER_VOICE) {
+              if (userMsg.wantAudio) {
+                flushAssistantText(assistantId);
+                const streamResult = enqueueStreamChunk(evt.chunk, evt.seq, evt.context);
+                if (streamResult) {
+                  const key = streamResult.key;
+                  if (!streamingContextsRef.current.has(key)) {
+                    streamingContextsRef.current.add(key);
+                    setPhase("tts");
+                  }
+                }
+              }
             } else if (evt.type === "audio" && !USE_BROWSER_VOICE) {
               if (userMsg.wantAudio && evt.url) {
-                setPhase("tts");
-                enqueue(evt.url);
+                flushAssistantText(assistantId);
+                const key = streamKeyFromContext(evt.context);
+                if (!streamingContextsRef.current.has(key)) {
+                  setPhase("tts");
+                  enqueue(evt.url);
+                }
+              }
+            } else if (evt.type === "audio_done" && !USE_BROWSER_VOICE) {
+              flushAssistantText(assistantId);
+              const result = completeStream(evt.context);
+              const key = result?.key ?? streamKeyFromContext(evt.context);
+
+              if (result && result.active) {
+                const waitMs = Math.max(result.remainingMs + 120, 240);
+                const existing = streamCleanupTimersRef.current.get(key);
+                if (existing) {
+                  clearTimeout(existing);
+                }
+                const timer = setTimeout(() => {
+                  streamCleanupTimersRef.current.delete(key);
+                  streamingContextsRef.current.delete(key);
+                  if (streamingContextsRef.current.size === 0 && !isStreamingRef.current) {
+                    setPhase("idle");
+                  }
+                }, waitMs);
+                streamCleanupTimersRef.current.set(key, timer);
+              } else {
+                const existing = streamCleanupTimersRef.current.get(key);
+                if (existing) {
+                  clearTimeout(existing);
+                  streamCleanupTimersRef.current.delete(key);
+                }
+                streamingContextsRef.current.delete(key);
+                if (streamingContextsRef.current.size === 0 && !isStreamingRef.current) {
+                  setPhase("idle");
+                }
               }
             } else if (evt.type === "audio_error") {
               console.error("[ChatWindow] Audio error:", evt.message);
+              if (!USE_BROWSER_VOICE) {
+                const key = streamKeyFromContext(evt.context);
+                const existing = streamCleanupTimersRef.current.get(key);
+                if (existing) {
+                  clearTimeout(existing);
+                  streamCleanupTimersRef.current.delete(key);
+                }
+                streamingContextsRef.current.delete(key);
+                cancelStream(evt.context);
+                clearAssistantStreamState(assistantId);
+                if (streamingContextsRef.current.size === 0 && !isStreamingRef.current) {
+                  setPhase("idle");
+                }
+              }
             } else if (evt.type === "done") {
+              clearAssistantStreamState(assistantId);
               // streaming finished
               setIsStreaming(false);
               if (!userMsg.wantAudio || USE_BROWSER_VOICE) setPhase("idle");
@@ -481,6 +632,7 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
         );
       } catch (e) {
         console.error("stream error", e);
+        clearAssistantStreamState(assistantId);
         // surface an error message in assistant bubble
         setMessages((m) =>
           m.map((msg) =>
