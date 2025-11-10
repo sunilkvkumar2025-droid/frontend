@@ -14,8 +14,9 @@
   import { useAudioQueue, resumeAudio } from "../../hooks/useAudioQueue";
   import { useSSEChat } from "../../hooks/useSSEChat";
   import { useEndSession } from "../../hooks/useEndSession";
-  import { AvatarPhoto } from "../avatar/AvatarPhoto";
-  import { createClient } from "@supabase/supabase-js";
+import { AvatarPhoto } from "../avatar/AvatarPhoto";
+import { createClient } from "@supabase/supabase-js";
+import { fetchCartesiaSonicAudio } from "../../lib/sonicRealtime";
 
   export type Role = "user" | "assistant" | "system";
 
@@ -81,6 +82,8 @@ type Phase = "idle" | "userRecording" | "llm" | "tts";
 
 const DEFAULT_TTS_STRATEGY = (process.env.NEXT_PUBLIC_TTS_STRATEGY ?? "legacy").toLowerCase();
 const USE_BROWSER_VOICE = DEFAULT_TTS_STRATEGY === "browser";
+const DEFAULT_TTS_MODEL = (process.env.NEXT_PUBLIC_TTS_MODEL ?? "legacy").toLowerCase();
+const USE_SONIC_CLIENT = DEFAULT_TTS_MODEL === "cartesia_sonic3" || DEFAULT_TTS_MODEL === "sonic-3";
 const BROWSER_VOICE_PREF_NAMES = [
   "Google हिन्दी",
   "Google भारतीय महिला",
@@ -142,6 +145,7 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
     const streamingContextsRef = useRef<Set<string>>(new Set());
     const streamCleanupTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
     const assistantStreamsRef = useRef<Map<string, AssistantStreamState>>(new Map());
+    const sonicAbortRef = useRef<AbortController | null>(null);
 
     const flushAssistantText = useCallback(
       (assistantId: string) => {
@@ -304,6 +308,7 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
 
     useEffect(() => {
       return () => {
+        sonicAbortRef.current?.abort();
         if (USE_BROWSER_VOICE && typeof window !== "undefined" && "speechSynthesis" in window) {
           const handler = browserVoiceListenerRef.current;
           if (handler) {
@@ -407,8 +412,51 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
       };
     }, []);
 
+    const startSonicAudio = useCallback(
+      (payload: {
+        text: string;
+        voice?: string | null;
+        language?: string | null;
+        model?: string | null;
+        sampleRate?: number | null;
+        wsBase?: string | null;
+        apiVersion?: string | null;
+      }) => {
+        if (!payload?.text) return;
+        sonicAbortRef.current?.abort();
+        const controller = new AbortController();
+        sonicAbortRef.current = controller;
+
+        fetchCartesiaSonicAudio(payload.text, {
+          voiceId: payload.voice ?? undefined,
+          language: payload.language ?? undefined,
+          modelId: payload.model ?? undefined,
+          sampleRate: payload.sampleRate ?? undefined,
+          wsBase: payload.wsBase ?? undefined,
+          apiVersion: payload.apiVersion ?? undefined,
+          signal: controller.signal,
+        })
+          .then((url) => {
+            if (controller.signal.aborted) return;
+            enqueue(url);
+            setPhase("tts");
+          })
+          .catch((err) => {
+            if (controller.signal.aborted) return;
+            console.error("[ChatWindow] Sonic audio failed", err);
+          })
+          .finally(() => {
+            if (sonicAbortRef.current === controller) {
+              sonicAbortRef.current = null;
+            }
+          });
+      },
+      [enqueue]
+    );
+
     // --- INTERRUPT AI (barge in)
     const handleBargeIn = () => {
+      sonicAbortRef.current?.abort();
       if (USE_BROWSER_VOICE) {
         stopBrowserSpeech();
       } else {
@@ -432,6 +480,7 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
         return;
       }
 
+    sonicAbortRef.current?.abort();
     if (!USE_BROWSER_VOICE) {
       resumeAudio();
       clear();
@@ -489,7 +538,9 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
       setIsStreaming(true);
       setPhase("llm");
 
-      const backendWantAudio = Boolean(!USE_BROWSER_VOICE && userMsg.wantAudio);
+      const sonicAudioActive = USE_SONIC_CLIENT && userMsg.wantAudio;
+      const browserAudioActive = USE_BROWSER_VOICE && userMsg.wantAudio;
+      const backendWantAudio = Boolean(!USE_BROWSER_VOICE && !USE_SONIC_CLIENT && userMsg.wantAudio);
       const backendTtsStrategy =
         backendWantAudio ? DEFAULT_TTS_STRATEGY : undefined;
       const bufferAssistantResponse = backendWantAudio && !USE_BROWSER_VOICE;
@@ -505,9 +556,10 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
           {
             sessionId,
             text: userMsg.text,
-            wantAudio: backendWantAudio,
+            wantAudio: userMsg.wantAudio,
             getAccessToken,
-            ttsStrategy: backendTtsStrategy,
+            ttsStrategy: browserAudioActive ? "browser" : backendTtsStrategy,
+            ttsModel: sonicAudioActive ? "sonic-3" : undefined,
           },
           (evt) => {
             if (evt.type === "token") {
@@ -588,6 +640,22 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
                 if (streamingContextsRef.current.size === 0 && !isStreamingRef.current) {
                   setPhase("idle");
                 }
+              }
+            } else if (evt.type === "audio_text") {
+              flushAssistantText(assistantId);
+              setIsStreaming(false);
+              if (evt.provider === "sonic-3" && sonicAudioActive) {
+                startSonicAudio({
+                  text: evt.text,
+                  voice: evt.voice,
+                  language: evt.language,
+                  model: evt.model,
+                  sampleRate: evt.sampleRate,
+                  wsBase: evt.wsBase,
+                  apiVersion: evt.apiVersion,
+                });
+              } else if (evt.provider === "browser-tts" && browserAudioActive) {
+                enqueueBrowserSpeech(evt.text);
               }
             } else if (evt.type === "done") {
               clearAssistantStreamState(assistantId);

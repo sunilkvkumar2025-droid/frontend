@@ -10,6 +10,18 @@
     | { type: "audio_chunk"; chunk: string; seq: number; context?: string }
     | { type: "audio_done"; seq?: number; context?: string }
     | { type: "audio_error"; message: string; context?: string }
+    | {
+        type: "audio_text";
+        provider?: string;
+        text: string;
+        model?: string | null;
+        voice?: string | null;
+        language?: string | null;
+        sampleRate?: number | null;
+        wsBase?: string | null;
+        apiVersion?: string | null;
+        context?: string;
+      }
     | { type: "speak_ready"; text: string; context?: string }
     | { type: "done"; messageId?: string; fullText?: string }
     | { type: "debug"; event: string; payload: unknown };
@@ -21,6 +33,7 @@
     wantAudio: boolean;
     getAccessToken: () => Promise<string | null>;
     ttsStrategy?: string;
+    ttsModel?: string;
   };
 
   function safeJson(raw: string) {
@@ -35,7 +48,7 @@
     const abortRef = useRef<AbortController | null>(null);
 
     const send = async (
-      { sessionId, text, wantAudio, userMessage, getAccessToken, ttsStrategy }: SendChatArgs,
+      { sessionId, text, wantAudio, userMessage, getAccessToken, ttsStrategy, ttsModel }: SendChatArgs,
       onEvent: (event: ChatEvent) => void
     ) => {
       const token = await getAccessToken();
@@ -51,6 +64,7 @@
         userMessage: userMessage ?? text,
         wantAudio,
         ...(ttsStrategy ? { ttsStrategy } : {}),
+        ...(ttsModel ? { ttsModel } : {}),
       };
 
       const res = await ssePost({
@@ -140,6 +154,28 @@
             onEvent({
               type: "audio_error",
               message: messagePayload,
+              context: typeof parsedObj?.context === "string" ? parsedObj.context : undefined,
+            });
+            break;
+          }
+
+          case "audio_text": {
+            const textPayload =
+              (typeof parsedObj?.text === "string" ? parsedObj.text : undefined) ??
+              parsedStr ??
+              "";
+            onEvent({
+              type: "audio_text",
+              provider: typeof parsedObj?.provider === "string" ? parsedObj.provider : undefined,
+              text: textPayload,
+              model: typeof parsedObj?.model === "string" ? parsedObj.model : undefined,
+              voice: typeof parsedObj?.voice === "string" ? parsedObj.voice : undefined,
+              language: typeof parsedObj?.language === "string" ? parsedObj.language : undefined,
+              sampleRate:
+                typeof parsedObj?.sampleRate === "number" ? parsedObj.sampleRate : undefined,
+              wsBase: typeof parsedObj?.wsBase === "string" ? parsedObj.wsBase : undefined,
+              apiVersion:
+                typeof parsedObj?.apiVersion === "string" ? parsedObj.apiVersion : undefined,
               context: typeof parsedObj?.context === "string" ? parsedObj.context : undefined,
             });
             break;
