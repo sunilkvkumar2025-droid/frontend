@@ -109,6 +109,9 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
     const [isStreaming, setIsStreaming] = useState(false);
     const isStreamingRef = useRef(isStreaming);
     const [sessionId, setSessionId] = useState<string | null>(null);
+    const [sessionToken, setSessionToken] = useState<string | null>(null);
+    const tokenExpiresAtRef = useRef<number | null>(null);
+    const tokenFetchPromiseRef = useRef<Promise<string | null> | null>(null);
 
     // score modal
     const [showScoreModal, setShowScoreModal] = useState(false);
@@ -404,13 +407,49 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
       }
     }, [messages, isStreaming]);
 
-    // --- auth helper for API calls
-    const getAccessToken = useMemo(() => {
-      return async () => {
-        const { data } = await supabase.auth.getSession();
-        return data.session?.access_token ?? null;
+    useEffect(() => {
+      let cancelled = false;
+
+      supabase.auth.getSession().then(({ data }) => {
+        if (cancelled) return;
+        setSessionToken(data.session?.access_token ?? null);
+        tokenExpiresAtRef.current = data.session?.expires_at ?? null;
+      });
+
+      const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+        setSessionToken(session?.access_token ?? null);
+        tokenExpiresAtRef.current = session?.expires_at ?? null;
+      });
+
+      return () => {
+        cancelled = true;
+        authListener?.subscription.unsubscribe();
       };
     }, []);
+
+    // --- auth helper for API calls
+    const getAccessToken = useCallback(async () => {
+      const expiresAt = tokenExpiresAtRef.current;
+      if (sessionToken && expiresAt && expiresAt * 1000 - Date.now() > 60_000) {
+        return sessionToken;
+      }
+
+      if (!tokenFetchPromiseRef.current) {
+        tokenFetchPromiseRef.current = supabase.auth
+          .getSession()
+          .then(({ data }) => {
+            const nextToken = data.session?.access_token ?? null;
+            setSessionToken(nextToken);
+            tokenExpiresAtRef.current = data.session?.expires_at ?? null;
+            return nextToken;
+          })
+          .finally(() => {
+            tokenFetchPromiseRef.current = null;
+          });
+      }
+
+      return tokenFetchPromiseRef.current!;
+    }, [sessionToken]);
 
     const startSonicAudio = useCallback(
       (payload: {
@@ -505,35 +544,37 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
         { id: assistantId, role: "assistant", text: "" },
       ]);
 
-      // save user message in DB with STT metadata
-      try {
-        const { data, error } = await supabase
-          .from("messages")
-          .insert({
-            session_id: sessionId,
-            role: "user",
-            content: userMsg.text,
-            stt_metadata: userMsg.stt_metadata,
-          })
-          .select()
-          .single();
+      // save user message in DB with STT metadata (fire-and-forget to avoid blocking send)
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from("messages")
+            .insert({
+              session_id: sessionId,
+              role: "user",
+              content: userMsg.text,
+              stt_metadata: userMsg.stt_metadata,
+            })
+            .select()
+            .single();
 
-        if (error) {
-          console.error("Failed to save message:", error);
-        } else if (data) {
-          userMsg.message_db_id = data.id;
-          // update message in state with db id
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === userMsg.id
-                ? { ...msg, message_db_id: data.id }
-                : msg
-            )
-          );
+          if (error) {
+            console.error("Failed to save message:", error);
+          } else if (data) {
+            userMsg.message_db_id = data.id;
+            // update message in state with db id
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === userMsg.id
+                  ? { ...msg, message_db_id: data.id }
+                  : msg
+              )
+            );
+          }
+        } catch (e) {
+          console.error("Error saving message:", e);
         }
-      } catch (e) {
-        console.error("Error saving message:", e);
-      }
+      })();
 
       setIsStreaming(true);
       setPhase("llm");
