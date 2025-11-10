@@ -538,9 +538,10 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
       setIsStreaming(true);
       setPhase("llm");
 
-      const sonicAudioActive = USE_SONIC_CLIENT && userMsg.wantAudio;
-      const browserAudioActive = USE_BROWSER_VOICE && userMsg.wantAudio;
-      const backendWantAudio = Boolean(!USE_BROWSER_VOICE && !USE_SONIC_CLIENT && userMsg.wantAudio);
+      const wantAudioEnabled = Boolean(userMsg.wantAudio);
+      const sonicAudioActive = USE_SONIC_CLIENT && wantAudioEnabled;
+      const browserAudioActive = USE_BROWSER_VOICE && wantAudioEnabled;
+      const backendWantAudio = Boolean(!USE_BROWSER_VOICE && !USE_SONIC_CLIENT && wantAudioEnabled);
       const backendTtsStrategy =
         backendWantAudio ? DEFAULT_TTS_STRATEGY : undefined;
       const bufferAssistantResponse = backendWantAudio && !USE_BROWSER_VOICE;
@@ -556,7 +557,7 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
           {
             sessionId,
             text: userMsg.text,
-            wantAudio: userMsg.wantAudio,
+            wantAudio: wantAudioEnabled,
             getAccessToken,
             ttsStrategy: browserAudioActive ? "browser" : backendTtsStrategy,
             ttsModel: sonicAudioActive ? "sonic-3" : undefined,
@@ -575,7 +576,7 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
                 );
               }
             } else if (evt.type === "audio_chunk" && !USE_BROWSER_VOICE) {
-              if (userMsg.wantAudio) {
+              if (wantAudioEnabled) {
                 flushAssistantText(assistantId);
                 const streamResult = enqueueStreamChunk(evt.chunk, evt.seq, evt.context);
                 if (streamResult) {
@@ -587,7 +588,7 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
                 }
               }
             } else if (evt.type === "audio" && !USE_BROWSER_VOICE) {
-              if (userMsg.wantAudio && evt.url) {
+              if (wantAudioEnabled && evt.url) {
                 flushAssistantText(assistantId);
                 const key = streamKeyFromContext(evt.context);
                 if (!streamingContextsRef.current.has(key)) {
@@ -661,7 +662,7 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
               clearAssistantStreamState(assistantId);
               // streaming finished
               setIsStreaming(false);
-              if (!userMsg.wantAudio || USE_BROWSER_VOICE) setPhase("idle");
+              if (!wantAudioEnabled || USE_BROWSER_VOICE) setPhase("idle");
 
               // parse the final structured feedback blob (correction/appreciation/etc)
               setMessages((prev) => {
@@ -679,7 +680,7 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
                     lastMsg.appreciation = parsed.appreciation || null;
                     lastMsg.contribution = parsed.contribution || null;
                     lastMsg.question = parsed.question || null;
-                    if (USE_BROWSER_VOICE && userMsg.wantAudio) {
+                    if (USE_BROWSER_VOICE && wantAudioEnabled) {
                       enqueueBrowserSpeech(parsed.speak_text);
                       if (parsed.correction) {
                         enqueueBrowserSpeech(parsed.correction);
