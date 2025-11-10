@@ -7,6 +7,8 @@ export type SonicRealtimeOptions = {
   apiVersion?: string | null;
   contextId?: string | null;
   signal?: AbortSignal;
+  onChunk?: (chunkB64: string, seq: number, contextId: string) => void;
+  onDone?: (contextId: string) => void;
 };
 
 const CARTESIA_WS_BASE =
@@ -38,11 +40,15 @@ export async function fetchCartesiaSonicAudio(
   wsUrl.searchParams.set("api_key", CARTESIA_API_KEY);
   wsUrl.searchParams.set("cartesia_version", apiVersion);
 
+  const rawContext = opts.contextId ?? `ctx_${crypto.randomUUID()}`;
+  const contextId = rawContext.replace(/[^a-zA-Z0-9_-]/g, "");
+
   const ws = new WebSocket(wsUrl.toString());
   ws.binaryType = "arraybuffer";
 
   return new Promise((resolve, reject) => {
     const chunks: Uint8Array[] = [];
+    let chunkSeq = 0;
     let settled = false;
 
     const cleanup = () => {
@@ -71,6 +77,7 @@ export async function fetchCartesiaSonicAudio(
       }
       const audio = concatChunks(chunks);
       const wavBytes = pcm16ToWav(audio, sampleRate, 1);
+      opts.onDone?.(contextId);
       resolve(`data:audio/wav;base64,${bytesToBase64(wavBytes)}`);
     };
 
@@ -81,15 +88,12 @@ export async function fetchCartesiaSonicAudio(
     }
 
     ws.onopen = () => {
-      const rawContext = opts.contextId ?? `ctx_${crypto.randomUUID()}`;
-      const context_id = rawContext.replace(/[^a-zA-Z0-9_-]/g, "");
-
       const payload = {
         model_id: modelId,
         transcript: text,
         voice: { mode: "id", id: voiceId },
         language,
-        context_id,
+        context_id: contextId,
         output_format: {
           container: "raw",
           encoding: "pcm_s16le",
@@ -114,7 +118,12 @@ export async function fetchCartesiaSonicAudio(
           switch (payload?.type) {
             case "chunk":
               if (typeof payload.data === "string") {
-                chunks.push(decodeBase64(payload.data));
+                const pcm = decodeBase64(payload.data);
+                chunks.push(pcm);
+                if (opts.onChunk) {
+                  const wav = pcm16ToWav(pcm, sampleRate, 1);
+                  opts.onChunk(bytesToBase64(wav), chunkSeq++, contextId);
+                }
               }
               break;
             case "done":
@@ -130,7 +139,12 @@ export async function fetchCartesiaSonicAudio(
           fail(err);
         }
       } else if (event.data instanceof ArrayBuffer) {
-        chunks.push(new Uint8Array(event.data));
+        const pcm = new Uint8Array(event.data);
+        chunks.push(pcm);
+        if (opts.onChunk) {
+          const wav = pcm16ToWav(pcm, sampleRate, 1);
+          opts.onChunk(bytesToBase64(wav), chunkSeq++, contextId);
+        }
       }
     };
 

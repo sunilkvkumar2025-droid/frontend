@@ -460,11 +460,45 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
         sampleRate?: number | null;
         wsBase?: string | null;
         apiVersion?: string | null;
+        context?: string | null;
       }) => {
         if (!payload?.text) return;
         sonicAbortRef.current?.abort();
         const controller = new AbortController();
         sonicAbortRef.current = controller;
+
+        const contextId = payload.context ?? `sonic-${Date.now()}`;
+        let streamed = false;
+
+        const handleStreamCleanup = () => {
+          const result = completeStream(contextId);
+          const key = result?.key ?? streamKeyFromContext(contextId);
+          if (result && result.active) {
+            const waitMs = Math.max(result.remainingMs + 120, 240);
+            const existing = streamCleanupTimersRef.current.get(key);
+            if (existing) {
+              clearTimeout(existing);
+            }
+            const timer = setTimeout(() => {
+              streamCleanupTimersRef.current.delete(key);
+              streamingContextsRef.current.delete(key);
+              if (streamingContextsRef.current.size === 0 && !isStreamingRef.current) {
+                setPhase("idle");
+              }
+            }, waitMs);
+            streamCleanupTimersRef.current.set(key, timer);
+          } else {
+            const existing = streamCleanupTimersRef.current.get(key);
+            if (existing) {
+              clearTimeout(existing);
+              streamCleanupTimersRef.current.delete(key);
+            }
+            streamingContextsRef.current.delete(key);
+            if (streamingContextsRef.current.size === 0 && !isStreamingRef.current) {
+              setPhase("idle");
+            }
+          }
+        };
 
         fetchCartesiaSonicAudio(payload.text, {
           voiceId: payload.voice ?? undefined,
@@ -473,16 +507,44 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
           sampleRate: payload.sampleRate ?? undefined,
           wsBase: payload.wsBase ?? undefined,
           apiVersion: payload.apiVersion ?? undefined,
+          contextId,
           signal: controller.signal,
+          onChunk: (chunkB64, seq) => {
+            streamed = true;
+            if (controller.signal.aborted) return;
+            const streamResult = enqueueStreamChunk(chunkB64, seq, contextId);
+            if (streamResult) {
+              const key = streamResult.key;
+              if (!streamingContextsRef.current.has(key)) {
+                streamingContextsRef.current.add(key);
+                setPhase("tts");
+              }
+            }
+          },
+          onDone: () => {
+            if (controller.signal.aborted) return;
+            handleStreamCleanup();
+          },
         })
           .then((url) => {
-            if (controller.signal.aborted) return;
+            if (controller.signal.aborted || streamed || !url) return;
             enqueue(url);
             setPhase("tts");
           })
           .catch((err) => {
             if (controller.signal.aborted) return;
             console.error("[ChatWindow] Sonic audio failed", err);
+            cancelStream(contextId);
+            const key = streamKeyFromContext(contextId);
+            const existing = streamCleanupTimersRef.current.get(key);
+            if (existing) {
+              clearTimeout(existing);
+              streamCleanupTimersRef.current.delete(key);
+            }
+            streamingContextsRef.current.delete(key);
+            if (streamingContextsRef.current.size === 0 && !isStreamingRef.current) {
+              setPhase("idle");
+            }
           })
           .finally(() => {
             if (sonicAbortRef.current === controller) {
@@ -490,7 +552,13 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
             }
           });
       },
-      [enqueue]
+      [
+        enqueue,
+        enqueueStreamChunk,
+        completeStream,
+        cancelStream,
+        setPhase,
+      ]
     );
 
     // --- INTERRUPT AI (barge in)
@@ -695,6 +763,7 @@ const BROWSER_VOICE_PREF_LOCALES = ["en-IN", "en-GB", "en-AU", "en-US"];
                   sampleRate: evt.sampleRate,
                   wsBase: evt.wsBase,
                   apiVersion: evt.apiVersion,
+                  context: evt.context,
                 });
               } else if (evt.provider === "browser-tts" && browserAudioActive) {
                 enqueueBrowserSpeech(evt.text);
